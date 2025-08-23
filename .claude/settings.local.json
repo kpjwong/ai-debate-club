@@ -4,9 +4,27 @@
       "Bash(git init:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(gh repo create:*)"
+      "Bash(gh repo create:*)",
+      "Bash(where gh)",
+      "Bash(Get-Command gh -ErrorAction SilentlyContinue)",
+      "Bash(echo $SHELL)",
+      "Bash(echo $PATH)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh\" --version)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh\" repo create ai-debate-club --public --description \"A multi-agent AI debate system using OpenAI agents with formal debate flow management\" --source=.)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh\" repo edit --visibility private)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh\" repo edit --visibility private --accept-visibility-change-consequences)",
+      "Bash(git push:*)",
+      "Bash(python:*)",
+      "Bash(\"/c/Users/jerem/AppData/Local/Programs/Python/Python311/python.exe\" -m py_compile \"C:\\Users\\jerem\\OneDrive\\Desktop\\Projects\\Debator\\debate_club.py\")",
+      "Bash(\"/c/Users/jerem/AppData/Local/Programs/Python/Python311/python.exe\" -m py_compile \"C:\\Users\\jerem\\OneDrive\\Desktop\\Projects\\Debator\\app.py\")"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\c\\Program Files\\GitHub CLI\\bin",
+      "C:\\c\\Users\\jerem\\AppData\\Local\\GitHubCLI\\bin",
+      "C:\\mingw64",
+      "C:\\"
+    ]
   }
 }

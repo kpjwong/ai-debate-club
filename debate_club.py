@@ -223,71 +223,59 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
 # 5. VERBOSE RUNNER FUNCTION
 # =============================================================================
 
-async def verbose_run_final(agent: Agent, topic: str, max_turns: int = 20):
+async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tuple:
     """
-    Custom runner that provides detailed step-by-step logging of the agent's
-    reasoning, actions, and observations during the debate process.
+    MODIFIED: Runs an agent and RETURNS a structured log and the final report.
+    Returns: A tuple containing (final_report_string, conversation_log_list)
     """
-    print(f"\n🎯 Starting debate on topic: '{topic}'")
-    print(f"📊 Max turns: {max_turns}")
-    print(f"🤖 Orchestrator: {agent.name}")
-    print("="*80)
+    conversation_log = []
     
-    result = await Runner.run(agent, topic, max_turns=max_turns)
+    print(f"\n>>> Starting run for Agent: '{agent.name}' with Query: '{query}' <<<")
     
-    print(f"\n📋 DETAILED EXECUTION TRACE")
-    print("="*80)
+    result = await Runner.run(agent, query, max_turns=max_turns)
     
-    for i, item in enumerate(result.new_items, 1):
-        
-        # Tool Call (Agent Decision)
+    for item in result.new_items:
+        # We process the items to build our structured log
         if isinstance(item, ToolCallItem):
-            print(f"\n🤔 [{i}] REASONING → ACTION")
-            
+            # This is the Orchestrator calling a sub-agent
             tool_name = "Unknown Tool"
-            arguments = "Unknown Arguments"
+            arguments = {}
             
             if hasattr(item, 'raw_item') and item.raw_item:
                 raw_call = item.raw_item
                 if hasattr(raw_call, 'function') and raw_call.function:
                     tool_name = getattr(raw_call.function, 'name', tool_name)
-                    arguments = getattr(raw_call.function, 'arguments', arguments)
+                    try:
+                        import json
+                        arguments = json.loads(getattr(raw_call.function, 'arguments', '{}'))
+                    except:
+                        arguments = {}
             
-            print(f"   └─ Calling: {tool_name}")
-            
-            # Truncate long arguments for readability
-            args_str = str(arguments)
-            if len(args_str) > 150:
-                args_str = args_str[:150] + "..."
-            print(f"   └─ Arguments: {args_str}")
-        
-        # Tool Output (Observation)
+            # We log this as a "turn" for the sub-agent
+            if tool_name in ["ProAgent", "ConAgent"]:
+                conversation_log.append({
+                    "speaker": tool_name,
+                    "content": arguments.get('query', "[No query provided]")
+                })
+
         elif isinstance(item, ToolCallOutputItem):
-            print(f"\n👀 [{i}] OBSERVATION")
-            tool_name = getattr(item, 'tool_name', 'Unknown Tool')
-            print(f"   └─ From: {tool_name}")
-            
-            output = getattr(item, 'output', 'No output available')
-            # Show first few lines of output
-            newline = '\n'  # Extract newline to avoid f-string backslash issue
-            output_lines = str(output).strip().split(newline)[:3]
-            for line in output_lines:
-                print(f"   │  {line}")
-            total_lines = len(str(output).strip().split(newline))
-            if total_lines > 3:
-                print(f"   │  ... ({total_lines - 3} more lines)")
+            # This is the sub-agent's response (Observation)
+            speaker = getattr(item, 'tool_name', "[Unknown Tool]")
+            output = getattr(item, 'output', "[No output provided]")
+            # We find the last turn for this speaker and add their response
+            for turn in reversed(conversation_log):
+                if turn["speaker"] == speaker and "response" not in turn:
+                    turn["response"] = output
+                    break
     
-    # Final Result
-    final_output = ItemHelpers.text_message_outputs(result.new_items)
+    # Get the final report from the Orchestrator
+    final_report = ItemHelpers.text_message_outputs(result.new_items)
     
-    print(f"\n✅ FINAL RESULT")
-    print("="*80)
-    if final_output:
-        print(final_output)
-    else:
-        print("⚠️  No final text output generated")
-    
-    return result
+    if not final_report:
+        final_report = "The debate concluded without a final report."
+
+    # Return the structured data
+    return (final_report, conversation_log)
 
 # =============================================================================
 # 6. MAIN EXECUTION BLOCK
@@ -344,9 +332,13 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
     
     # Run the debate with verbose logging
     print("\n🚀 Starting debate execution...")
-    await verbose_run_final(orchestrator, topic, max_turns)
+    final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns)
     
     print(f"\n🎉 Debate completed!")
+    print("\n" + "="*80)
+    print("FINAL REPORT:")
+    print("="*80)
+    print(final_report)
 
 # =============================================================================
 # EXECUTION ENTRY POINTS
