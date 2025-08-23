@@ -198,22 +198,35 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
             "7. **REPORTING** → Generate final structured report with all sections\n\n"
             
             "**FINAL REPORT FORMAT:**\n"
-            "Structure your final report with these exact sections:\n"
+            "Structure your final report with these exact sections. Use CONCISE bullet points (max 3 per section, max 25 words each). **Bold the key punchline** in each bullet:\n\n"
             "## Debate Report: [MOTION]\n\n"
-            "### Opening Statement (Pro)\n"
-            "[Pro's opening]\n\n"
-            "### Opening Statement (Con)\n"
-            "[Con's opening]\n\n"
-            "### Rebuttal (Con)\n"
-            "[Con's rebuttal to Pro]\n\n"
-            "### Rebuttal (Pro)\n"
-            "[Pro's rebuttal to Con]\n\n"
-            "### Final Summary (Pro)\n"
-            "[Pro's closing]\n\n"
-            "### Final Summary (Con)\n"
-            "[Con's closing]\n\n"
+            "### Opening Statement Summary (Pro)\n"
+            "• **[Key Argument 1]**: Brief explanation\n"
+            "• **[Key Argument 2]**: Brief explanation\n"
+            "• **[Key Argument 3]**: Brief explanation\n\n"
+            "### Opening Statement Summary (Con)\n"
+            "• **[Key Counter-Argument 1]**: Brief explanation\n"
+            "• **[Key Counter-Argument 2]**: Brief explanation\n"
+            "• **[Key Counter-Argument 3]**: Brief explanation\n\n"
+            "### Rebuttal Summary (Con)\n"
+            "• **[Main Counter-Point 1]**: Brief rebuttal\n"
+            "• **[Main Counter-Point 2]**: Brief rebuttal\n"
+            "• **[Main Counter-Point 3]**: Brief rebuttal\n\n"
+            "### Rebuttal Summary (Pro)\n"
+            "• **[Main Counter-Point 1]**: Brief rebuttal\n"
+            "• **[Main Counter-Point 2]**: Brief rebuttal\n"
+            "• **[Main Counter-Point 3]**: Brief rebuttal\n\n"
+            "### Final Position (Pro)\n"
+            "• **[Core Conclusion 1]**: Final stance\n"
+            "• **[Core Conclusion 2]**: Final stance\n"
+            "• **[Core Conclusion 3]**: Final stance\n\n"
+            "### Final Position (Con)\n"
+            "• **[Core Conclusion 1]**: Final stance\n"
+            "• **[Core Conclusion 2]**: Final stance\n"
+            "• **[Core Conclusion 3]**: Final stance\n\n"
             "---\n"
-            "*Debate completed by AI Debate Club system*"
+            "*Debate completed by AI Debate Club system*\n\n"
+            "**CRITICAL**: Each bullet point must be under 25 words. Focus on the strongest arguments only."
         ),
         tools=tools,
         model_settings=ModelSettings(tool_choice="required")
@@ -228,6 +241,10 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
     MODIFIED: Runs an agent and RETURNS a structured log and the final report.
     Returns: A tuple containing (final_report_string, conversation_log_list)
     """
+    import json
+    from datetime import datetime
+    import os
+    
     conversation_log = []
     
     print(f"\n>>> Starting run for Agent: '{agent.name}' with Query: '{query}' <<<")
@@ -273,6 +290,55 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
     
     if not final_report:
         final_report = "The debate concluded without a final report."
+
+    # Create logs directory if it doesn't exist
+    logs_dir = "logs"
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+    
+    # Save debug logs with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Save conversation log
+    conversation_log_file = os.path.join(logs_dir, f"conversation_{timestamp}.json")
+    with open(conversation_log_file, 'w', encoding='utf-8') as f:
+        json.dump({
+            'timestamp': timestamp,
+            'query': query,
+            'agent': agent.name,
+            'conversation_log': conversation_log,
+            'conversation_log_length': len(conversation_log)
+        }, f, indent=2, ensure_ascii=False)
+    
+    # Save final report
+    report_file = os.path.join(logs_dir, f"report_{timestamp}.md")
+    with open(report_file, 'w', encoding='utf-8') as f:
+        f.write(f"# Debate Report - {timestamp}\n")
+        f.write(f"**Query:** {query}\n\n")
+        f.write(final_report)
+    
+    # Save raw result items for debugging
+    raw_debug_file = os.path.join(logs_dir, f"raw_debug_{timestamp}.json")
+    debug_data = []
+    for i, item in enumerate(result.new_items):
+        debug_data.append({
+            'index': i,
+            'type': type(item).__name__,
+            'attributes': {k: str(v) for k, v in item.__dict__.items() if not k.startswith('_')}
+        })
+    
+    with open(raw_debug_file, 'w', encoding='utf-8') as f:
+        json.dump({
+            'timestamp': timestamp,
+            'total_items': len(result.new_items),
+            'items': debug_data
+        }, f, indent=2, ensure_ascii=False)
+    
+    print(f"\n📁 Debug logs saved:")
+    print(f"   - Conversation: {conversation_log_file}")
+    print(f"   - Report: {report_file}")
+    print(f"   - Raw Debug: {raw_debug_file}")
+    print(f"   - Conversation log entries: {len(conversation_log)}")
 
     # Return the structured data
     return (final_report, conversation_log)

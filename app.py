@@ -168,7 +168,8 @@ async def run_debate(topic: str, model: str, max_turns: int):
 def render_conversation_ui(conversation_log):
     """Render the messenger-style conversation interface"""
     if not conversation_log:
-        st.info("No conversation data available. Run a debate first!")
+        st.warning("No conversation data available. Run a debate first!")
+        st.info("💡 **Debug Info**: Check the `logs/` directory for debug files after running a debate.")
         return
     
     for turn in conversation_log:
