@@ -258,31 +258,57 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
             tool_name = "Unknown Tool"
             arguments = {}
             
-            if hasattr(item, 'raw_item') and item.raw_item:
+            # Try multiple ways to extract tool call information
+            if hasattr(item, 'name') and item.name:
+                tool_name = item.name
+            elif hasattr(item, 'tool_name') and item.tool_name:
+                tool_name = item.tool_name
+            elif hasattr(item, 'raw_item') and item.raw_item:
                 raw_call = item.raw_item
                 if hasattr(raw_call, 'function') and raw_call.function:
                     tool_name = getattr(raw_call.function, 'name', tool_name)
+            
+            # Try to extract arguments
+            if hasattr(item, 'arguments') and item.arguments:
+                if isinstance(item.arguments, dict):
+                    arguments = item.arguments
+                else:
                     try:
-                        import json
+                        arguments = json.loads(str(item.arguments))
+                    except:
+                        arguments = {}
+            elif hasattr(item, 'raw_item') and item.raw_item:
+                raw_call = item.raw_item
+                if hasattr(raw_call, 'function') and raw_call.function:
+                    try:
                         arguments = json.loads(getattr(raw_call.function, 'arguments', '{}'))
                     except:
                         arguments = {}
             
+            # Debug: Print what we found
+            print(f"🔍 ToolCallItem found: tool_name='{tool_name}', arguments keys: {list(arguments.keys())}")
+            
             # We log this as a "turn" for the sub-agent
             if tool_name in ["ProAgent", "ConAgent"]:
+                content = arguments.get('query', arguments.get('input', "[No query provided]"))
                 conversation_log.append({
                     "speaker": tool_name,
-                    "content": arguments.get('query', "[No query provided]")
+                    "content": content
                 })
+                print(f"✅ Added conversation turn: {tool_name} -> {content[:50]}...")
 
         elif isinstance(item, ToolCallOutputItem):
             # This is the sub-agent's response (Observation)
-            speaker = getattr(item, 'tool_name', "[Unknown Tool]")
-            output = getattr(item, 'output', "[No output provided]")
+            speaker = getattr(item, 'tool_name', getattr(item, 'name', "[Unknown Tool]"))
+            output = getattr(item, 'output', getattr(item, 'result', "[No output provided]"))
+            
+            print(f"🔍 ToolCallOutputItem found: speaker='{speaker}', output length: {len(str(output))}")
+            
             # We find the last turn for this speaker and add their response
             for turn in reversed(conversation_log):
                 if turn["speaker"] == speaker and "response" not in turn:
                     turn["response"] = output
+                    print(f"✅ Added response to {speaker}: {str(output)[:50]}...")
                     break
     
     # Get the final report from the Orchestrator
@@ -321,11 +347,40 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
     raw_debug_file = os.path.join(logs_dir, f"raw_debug_{timestamp}.json")
     debug_data = []
     for i, item in enumerate(result.new_items):
-        debug_data.append({
+        item_debug = {
             'index': i,
             'type': type(item).__name__,
-            'attributes': {k: str(v) for k, v in item.__dict__.items() if not k.startswith('_')}
-        })
+            'attributes': {},
+            'methods': [method for method in dir(item) if not method.startswith('_')]
+        }
+        
+        # Capture all attributes safely
+        for k, v in item.__dict__.items():
+            if not k.startswith('_'):
+                try:
+                    item_debug['attributes'][k] = str(v)
+                except:
+                    item_debug['attributes'][k] = f"<{type(v).__name__}>"
+        
+        # Special handling for ToolCallItem and ToolCallOutputItem
+        if isinstance(item, ToolCallItem):
+            item_debug['special_checks'] = {
+                'has_name': hasattr(item, 'name'),
+                'has_tool_name': hasattr(item, 'tool_name'),
+                'has_arguments': hasattr(item, 'arguments'),
+                'has_raw_item': hasattr(item, 'raw_item')
+            }
+            if hasattr(item, 'raw_item') and item.raw_item:
+                try:
+                    item_debug['raw_item_details'] = {
+                        'type': type(item.raw_item).__name__,
+                        'has_function': hasattr(item.raw_item, 'function'),
+                        'attributes': {k: str(v) for k, v in item.raw_item.__dict__.items() if not k.startswith('_')}
+                    }
+                except:
+                    item_debug['raw_item_details'] = "Error accessing raw_item"
+        
+        debug_data.append(item_debug)
     
     with open(raw_debug_file, 'w', encoding='utf-8') as f:
         json.dump({
