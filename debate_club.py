@@ -269,11 +269,13 @@ async def verbose_run_final(agent: Agent, topic: str, max_turns: int = 20):
             
             output = getattr(item, 'output', 'No output available')
             # Show first few lines of output
-            output_lines = str(output).strip().split('\n')[:3]
+            newline = '\n'  # Extract newline to avoid f-string backslash issue
+            output_lines = str(output).strip().split(newline)[:3]
             for line in output_lines:
                 print(f"   │  {line}")
-            if len(str(output).strip().split('\n')) > 3:
-                print(f"   │  ... ({len(str(output).strip().split('\n')) - 3} more lines)")
+            total_lines = len(str(output).strip().split(newline))
+            if total_lines > 3:
+                print(f"   │  ... ({total_lines - 3} more lines)")
     
     # Final Result
     final_output = ItemHelpers.text_message_outputs(result.new_items)
