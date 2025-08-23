@@ -1,165 +1,362 @@
+#!/usr/bin/env python3
+"""
+AI Debate Club - A Multi-Agent Debate System
+
+This script implements a multi-agent system to simulate formal debates between
+two AI agents, orchestrated by a third "Moderator" agent using a state-machine protocol.
+"""
+
+# =============================================================================
+# 1. IMPORTS & CONFIGURATION
+# =============================================================================
+
 import asyncio
+import argparse
 import os
-from agents import (
-    Agent,
-    Runner,
-    function_tool,
-    ItemHelpers,
-    ModelSettings,
-    # --- 根据您提供的 dir(agents) 输出，我们使用这些确切存在的类 ---
-    ReasoningItem,
-    ToolCallItem,
-    ToolCallOutputItem,
-    MessageOutputItem,
-    set_default_openai_client
-)
+import sys
+from typing import Optional
+
+try:
+    from openai_agents import (
+        Agent,
+        Runner,
+        function_tool,
+        ItemHelpers,
+        ModelSettings,
+        ReasoningItem,
+        ToolCallItem,
+        ToolCallOutputItem,
+        MessageOutputItem,
+        set_default_openai_client
+    )
+except ImportError:
+    # Fallback to 'agents' if 'openai-agents' is not available
+    from agents import (
+        Agent,
+        Runner,
+        function_tool,
+        ItemHelpers,
+        ModelSettings,
+        ReasoningItem,
+        ToolCallItem,
+        ToolCallOutputItem,
+        MessageOutputItem,
+        set_default_openai_client
+    )
+
 from openai import OpenAI, AsyncOpenAI
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-custom_openai_client = OpenAI(api_key=OPENAI_API_KEY)
-custom_async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-set_default_openai_client(custom_async_client)
+# API Key Configuration (for learning environment - use environment variables in production)
+OPENAI_API_KEY = "sk-your-api-key-here"  # Replace with your actual API key
 
-# --- 正方 Agent ---
-ProAgent = Agent(
-    name="ProAgent",
-    model="gpt-5-mini-2025-08-07",
-    instructions=(
-        "You are a skilled debater arguing IN FAVOR of the motion. "
-        "Provide clear, logical, and evidence-based arguments. "
-        "When asked to rebut, directly address the points made by your opponent. "
-        "Keep your responses concise and focused on the core argument."
-    ),
-    tools=[]
-)
+# Initialize OpenAI clients
+def setup_openai_client():
+    """Setup OpenAI clients with API key"""
+    api_key = os.getenv("OPENAI_API_KEY", OPENAI_API_KEY)
+    if not api_key or api_key == "sk-your-api-key-here":
+        print("⚠️  Warning: Please set your OpenAI API key in the OPENAI_API_KEY environment variable")
+        print("   or update the OPENAI_API_KEY variable in this script.")
+        sys.exit(1)
+    
+    custom_openai_client = OpenAI(api_key=api_key)
+    custom_async_client = AsyncOpenAI(api_key=api_key)
+    set_default_openai_client(custom_async_client)
+    return custom_async_client
 
-# --- 反方 Agent ---
-ConAgent = Agent(
-    name="ConAgent",
-    model="gpt-5-mini-2025-08-07",
-    instructions=(
-        "You are a skilled debater arguing AGAINST the motion. "
-        "Provide clear, logical, and evidence-based arguments. "
-        "When asked to rebut, directly address the points made by your opponent. "
-        "Keep your responses concise and focused on the core argument."
-    ),
-    tools=[]
-)
+# Argument Parser Configuration
+def setup_argument_parser():
+    """Setup command-line argument parser"""
+    parser = argparse.ArgumentParser(
+        description="AI Debate Club - Multi-Agent Debate System",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s
+  %(prog)s --topic "Should AI be regulated?"
+  %(prog)s --topic "Climate change vs economic growth" --model gpt-4-turbo
+        """
+    )
+    
+    parser.add_argument(
+        '--topic',
+        type=str,
+        default="Social media platforms should be regulated as public utilities",
+        help='The debate topic/motion (default: "Social media platforms should be regulated as public utilities")'
+    )
+    
+    parser.add_argument(
+        '--model',
+        type=str,
+        default="gpt-4o-mini",
+        choices=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+        help='The OpenAI model to use for all agents (default: gpt-4o-mini)'
+    )
+    
+    parser.add_argument(
+        '--max-turns',
+        type=int,
+        default=20,
+        help='Maximum number of turns for the debate (default: 20)'
+    )
+    
+    return parser
+
+# =============================================================================
+# 2. L1 SPECIALIST AGENT DEFINITIONS
+# =============================================================================
+
+def create_pro_agent(model: str) -> Agent:
+    """Create the Pro (Affirmative) debater agent"""
+    return Agent(
+        name="ProAgent",
+        model=model,
+        instructions=(
+            "You are a skilled debater arguing IN FAVOR of the motion. "
+            "Your role is to present compelling arguments that support the given position. "
+            "\n\nGuidelines:"
+            "\n• Provide clear, logical, and evidence-based arguments"
+            "\n• Use specific examples and data when possible"
+            "\n• When asked to rebut, directly address your opponent's points"
+            "\n• Maintain a professional and respectful tone"
+            "\n• Keep responses concise and focused on core arguments"
+            "\n• Structure your arguments with clear reasoning"
+        ),
+        tools=[]
+    )
+
+def create_con_agent(model: str) -> Agent:
+    """Create the Con (Negative) debater agent"""
+    return Agent(
+        name="ConAgent",
+        model=model,
+        instructions=(
+            "You are a skilled debater arguing AGAINST the motion. "
+            "Your role is to present compelling arguments that oppose the given position. "
+            "\n\nGuidelines:"
+            "\n• Provide clear, logical, and evidence-based arguments"
+            "\n• Use specific examples and data when possible"
+            "\n• When asked to rebut, directly address your opponent's points"
+            "\n• Maintain a professional and respectful tone"
+            "\n• Keep responses concise and focused on core arguments"
+            "\n• Structure your arguments with clear reasoning"
+        ),
+        tools=[]
+    )
+
+# =============================================================================
+# 3. AGENT-AS-TOOL WRAPPER
+# =============================================================================
 
 def create_tool_from_agent(agent: Agent, description: str):
+    """
+    Wrapper function that converts an Agent into a tool that can be used by the Orchestrator.
+    This enables the hierarchical L2->L1 agent architecture.
+    """
     async def run_agent_as_tool(query: str) -> str:
-        print("\n" + "="*20 + f" [ SWITCHING CONTEXT ] " + "="*20)
-        print(f"Orchestrator is delegating task to sub-agent: {agent.name}")
-        print(f"Sub-agent's task: '{query}'")
-        print("="*65 + "\n")
+        print(f"\n{'='*20} [ SWITCHING CONTEXT ] {'='*20}")
+        print(f"Orchestrator delegating to: {agent.name}")
+        print(f"Task: {query[:100]}...")
+        print(f"{'='*65}\n")
         
         result = await Runner.run(agent, query, max_turns=1)
         output = ItemHelpers.text_message_outputs(result.new_items)
         
-        print("\n" + "="*20 + f" [ RETURNING CONTEXT ] " + "="*20)
-        print(f"Sub-agent {agent.name} has finished.")
-        print(f"Returning result to Orchestrator.")
-        print("="*65 + "\n")
-        return output if output else "The agent did not provide a response."
+        print(f"\n{'='*20} [ RETURNING CONTEXT ] {'='*20}")
+        print(f"{agent.name} completed task")
+        print(f"Returning control to Orchestrator")
+        print(f"{'='*65}\n")
+        
+        return output if output else f"The {agent.name} did not provide a response."
 
-    return function_tool(run_agent_as_tool, name_override=agent.name, description_override=description)
+    return function_tool(
+        run_agent_as_tool, 
+        name_override=agent.name, 
+        description_override=description
+    )
 
-pro_agent_tool = create_tool_from_agent(
-    agent=ProAgent,
-    description="Use this to get the arguments FOR the motion (pro side)."
-)
-con_agent_tool = create_tool_from_agent(
-    agent=ConAgent,
-    description="Use this to get the arguments AGAINST the motion (con side)."
-)
-orchestrator_tools = [pro_agent_tool, con_agent_tool]
-print("--- L1 Debater Agents wrapped as Tools for Orchestrator ---")
+# =============================================================================
+# 4. L2 ORCHESTRATOR AGENT DEFINITION
+# =============================================================================
 
-# --- Orchestrator Agent ---
-OrchestratorAgent = Agent(
-    name="DebateModerator",
-    model="gpt-5-mini-2025-08-07",
-    instructions=(
-        "You are a STOIC and IMPARTIAL state machine-based debate moderator. "
-        "Your SOLE function is to manage the debate flow by calling your tools according to a strict sequence of states. "
-        "**YOU MUST NOT USE YOUR OWN KNOWLEDGE OR OPINIONS.**\n"
-        "You operate in the following states. After each tool call, you will receive an observation. Based on the complete history, you must determine the current state and execute ONLY the action for the NEXT state.\n"
-        "**STATES AND REQUIRED ACTIONS:**\n"
-        "1. **START**: This is the initial state. Your action is to call `ProAgent`. The query MUST be: 'The debate motion is: [Insert Full Motion Here]. Please provide your opening statement.'\n"
-        "2. **AWAITING_CON_OPENING**: You have the ProAgent's statement. Your action is to call `ConAgent`. The query MUST be: 'The debate motion is: [Insert Full Motion Here]. Please provide your opening statement.'\n"
-        "3. **AWAITING_CON_REBUTTAL**: You have both opening statements. Your action is to call `ConAgent`. The query MUST be formatted EXACTLY like this: 'The debate motion is: [Insert Full Motion Here]. Here is the opponent's opening statement. Please provide a point-by-point rebuttal: [Insert ProAgent's full opening statement here]'.\n"
-        "4. **AWAITING_PRO_REBUTTAL**: You have the Con's rebuttal. Your action is to call `ProAgent`. The query MUST be formatted EXACTLY like this: 'The debate motion is: [Insert Full Motion Here]. Here is the opponent's opening statement. Please provide a point-by-point rebuttal: [Insert ConAgent's full opening statement here]'.\n"
-        "5. **AWAITING_PRO_SUMMARY**: You have both rebuttals. Your action is to call `ProAgent`. The query MUST include the motion AND the entire debate history for full context. For example: 'The debate motion was: [Insert Full Motion Here]. Based on the entire debate history below, provide your final summary: [Insert Full History Here]'.\n"
-        "6. **AWAITING_CON_SUMMARY**: You have the Pro's summary. Your action is to call `ConAgent`. The query MUST also include the motion AND the entire debate history for full context.\n"
-        "7. **REPORTING**: You have all summaries. This is the final state. Your action is to stop calling tools and output your final answer. Your final answer MUST be a compilation of the entire debate into a single, well-structured report. The report must contain clearly labeled sections for: 'Opening Statement (Pro)', 'Opening Statement (Con)', 'Rebuttal (Con)', 'Rebuttal (Pro)', 'Summary (Pro)', and 'Summary (Con)'. Summarize each round in ONE SENTENCE. "
-    ),
-    tools=orchestrator_tools,
-    # --- 关键修改：强制模型必须使用工具 ---
-    # 这会迫使它在第一步就思考“我该用哪个工具？”，而不是“我该如何直接回答？”
-    model_settings=ModelSettings(tool_choice="required")
-)
-print("--- L2 Orchestrator Agent (DebateModerator) Created with ENFORCED instructions ---")
+def create_orchestrator_agent(model: str, tools: list) -> Agent:
+    """Create the Debate Moderator (Orchestrator) agent"""
+    return Agent(
+        name="DebateModerator",
+        model=model,
+        instructions=(
+            "You are an IMPARTIAL debate moderator operating as a strict state machine. "
+            "Your SOLE purpose is to manage formal debate flow by calling tools in the correct sequence. "
+            "**YOU MUST NOT inject your own opinions or knowledge.**\n\n"
+            
+            "**DEBATE FLOW STATES:**\n"
+            "1. **START** → Call ProAgent: 'The motion is: [MOTION]. Provide your opening statement.'\n"
+            "2. **AWAITING_CON_OPENING** → Call ConAgent: 'The motion is: [MOTION]. Provide your opening statement.'\n"
+            "3. **AWAITING_CON_REBUTTAL** → Call ConAgent: 'The motion is: [MOTION]. Rebut this opening: [PRO_OPENING]'\n"
+            "4. **AWAITING_PRO_REBUTTAL** → Call ProAgent: 'The motion is: [MOTION]. Rebut this opening: [CON_OPENING]'\n"
+            "5. **AWAITING_PRO_SUMMARY** → Call ProAgent: 'Motion: [MOTION]. Provide final summary based on: [FULL_HISTORY]'\n"
+            "6. **AWAITING_CON_SUMMARY** → Call ConAgent: 'Motion: [MOTION]. Provide final summary based on: [FULL_HISTORY]'\n"
+            "7. **REPORTING** → Generate final structured report with all sections\n\n"
+            
+            "**FINAL REPORT FORMAT:**\n"
+            "Structure your final report with these exact sections:\n"
+            "## Debate Report: [MOTION]\n\n"
+            "### Opening Statement (Pro)\n"
+            "[Pro's opening]\n\n"
+            "### Opening Statement (Con)\n"
+            "[Con's opening]\n\n"
+            "### Rebuttal (Con)\n"
+            "[Con's rebuttal to Pro]\n\n"
+            "### Rebuttal (Pro)\n"
+            "[Pro's rebuttal to Con]\n\n"
+            "### Final Summary (Pro)\n"
+            "[Pro's closing]\n\n"
+            "### Final Summary (Con)\n"
+            "[Con's closing]\n\n"
+            "---\n"
+            "*Debate completed by AI Debate Club system*"
+        ),
+        tools=tools,
+        model_settings=ModelSettings(tool_choice="required")
+    )
 
-topic = "Anit-wokism is worse than wokism"
-max_turns = 20
+# =============================================================================
+# 5. VERBOSE RUNNER FUNCTION
+# =============================================================================
 
-if asyncio.get_event_loop().is_running():
-    # For Jupyter notebooks where event loop is already running
-    result = await Runner.run(OrchestratorAgent, topic, max_turns=max_turns)
+async def verbose_run_final(agent: Agent, topic: str, max_turns: int = 20):
+    """
+    Custom runner that provides detailed step-by-step logging of the agent's
+    reasoning, actions, and observations during the debate process.
+    """
+    print(f"\n🎯 Starting debate on topic: '{topic}'")
+    print(f"📊 Max turns: {max_turns}")
+    print(f"🤖 Orchestrator: {agent.name}")
+    print("="*80)
+    
+    result = await Runner.run(agent, topic, max_turns=max_turns)
+    
+    print(f"\n📋 DETAILED EXECUTION TRACE")
+    print("="*80)
+    
+    for i, item in enumerate(result.new_items, 1):
+        
+        # Tool Call (Agent Decision)
+        if isinstance(item, ToolCallItem):
+            print(f"\n🤔 [{i}] REASONING → ACTION")
+            
+            tool_name = "Unknown Tool"
+            arguments = "Unknown Arguments"
+            
+            if hasattr(item, 'raw_item') and item.raw_item:
+                raw_call = item.raw_item
+                if hasattr(raw_call, 'function') and raw_call.function:
+                    tool_name = getattr(raw_call.function, 'name', tool_name)
+                    arguments = getattr(raw_call.function, 'arguments', arguments)
+            
+            print(f"   └─ Calling: {tool_name}")
+            
+            # Truncate long arguments for readability
+            args_str = str(arguments)
+            if len(args_str) > 150:
+                args_str = args_str[:150] + "..."
+            print(f"   └─ Arguments: {args_str}")
+        
+        # Tool Output (Observation)
+        elif isinstance(item, ToolCallOutputItem):
+            print(f"\n👀 [{i}] OBSERVATION")
+            tool_name = getattr(item, 'tool_name', 'Unknown Tool')
+            print(f"   └─ From: {tool_name}")
+            
+            output = getattr(item, 'output', 'No output available')
+            # Show first few lines of output
+            output_lines = str(output).strip().split('\n')[:3]
+            for line in output_lines:
+                print(f"   │  {line}")
+            if len(str(output).strip().split('\n')) > 3:
+                print(f"   │  ... ({len(str(output).strip().split('\n')) - 3} more lines)")
+    
+    # Final Result
+    final_output = ItemHelpers.text_message_outputs(result.new_items)
+    
+    print(f"\n✅ FINAL RESULT")
+    print("="*80)
+    if final_output:
+        print(final_output)
+    else:
+        print("⚠️  No final text output generated")
+    
+    return result
+
+# =============================================================================
+# 6. MAIN EXECUTION BLOCK
+# =============================================================================
+
+async def main(topic_override: Optional[str] = None, model_override: Optional[str] = None):
+    """
+    Main async function that orchestrates the entire debate process.
+    Supports both command-line and Jupyter notebook execution.
+    """
+    
+    # Handle command-line arguments (only if not overridden)
+    if topic_override is None or model_override is None:
+        parser = setup_argument_parser()
+        args = parser.parse_args()
+        topic = topic_override or args.topic
+        model = model_override or args.model
+        max_turns = args.max_turns
+    else:
+        topic = topic_override
+        model = model_override
+        max_turns = 20
+    
+    print(f"\n🎭 AI DEBATE CLUB")
+    print("="*50)
+    print(f"📝 Topic: {topic}")
+    print(f"🧠 Model: {model}")
+    print(f"🔄 Max Turns: {max_turns}")
+    print("="*50)
+    
+    # Setup OpenAI client
+    setup_openai_client()
+    
+    # Create L1 Specialist Agents
+    pro_agent = create_pro_agent(model)
+    con_agent = create_con_agent(model)
+    print("✅ L1 Debater agents created")
+    
+    # Create agent-as-tool wrappers
+    pro_tool = create_tool_from_agent(
+        pro_agent, 
+        "Use this to get arguments FOR the motion (pro/affirmative side)"
+    )
+    con_tool = create_tool_from_agent(
+        con_agent, 
+        "Use this to get arguments AGAINST the motion (con/negative side)"
+    )
+    orchestrator_tools = [pro_tool, con_tool]
+    print("✅ Agent tools wrapped for orchestrator")
+    
+    # Create L2 Orchestrator Agent
+    orchestrator = create_orchestrator_agent(model, orchestrator_tools)
+    print("✅ L2 Orchestrator agent created")
+    
+    # Run the debate with verbose logging
+    print("\n🚀 Starting debate execution...")
+    await verbose_run_final(orchestrator, topic, max_turns)
+    
+    print(f"\n🎉 Debate completed!")
+
+# =============================================================================
+# EXECUTION ENTRY POINTS
+# =============================================================================
+
+if __name__ == "__main__":
+    # Command-line execution
+    asyncio.run(main())
 else:
-    # For regular Python runtime
-    result = asyncio.run(Runner.run(OrchestratorAgent, topic, max_turns=max_turns))
-
-for item in result.new_items:
-    # 我们不再检查 ReasoningItem，因为它不包含可打印的文本。
-    # 我们直接关注可观察的行动和结果。
-
-    # 当模型决定调用工具时
-    if isinstance(item, ToolCallItem):
-        # 思考过程已经隐含在这个行动中了
-        print(f"\n🤔 [Thought -> Action] Agent '{OrchestratorAgent.name}' decided to call a tool.")
-        
-        # --- 关键修复：从 raw_item 中提取信息 ---
-        # 根据 OpenAI 的标准 ToolCall 结构，信息应该在 raw_item.function 中
-        tool_name_to_print = "[Unknown Tool]"
-        arguments_to_print = "[Unknown Arguments]"
-
-        # raw_item 可能有不同的结构，我们安全地访问它
-        if hasattr(item, 'raw_item') and item.raw_item:
-            raw_tool_call = item.raw_item
-            # 检查是否存在 'function' 属性 (标准 OpenAI 格式)
-            if hasattr(raw_tool_call, 'function') and raw_tool_call.function:
-                function_call = raw_tool_call.function
-                if hasattr(function_call, 'name'):
-                    tool_name_to_print = function_call.name
-                if hasattr(function_call, 'arguments'):
-                    arguments_to_print = function_call.arguments
-        
-        print(f"   | Calling Tool: {tool_name_to_print}")
-        
-        # 截断过长的参数
-        args_str = str(arguments_to_print)
-        if len(args_str) > 200:
-            args_str = args_str[:200] + "..."
-        print(f"   | With Arguments: {args_str}")
-
-    # 当工具执行完毕，结果返回时
-    elif isinstance(item, ToolCallOutputItem):
-        print(f"\n👀 [Observation] Result from a tool:")
-        
-        # 安全地获取工具名
-        tool_name_to_print = getattr(item, 'tool_name', "[Unknown Source Tool]")
-        print(f"   | Source Tool: {tool_name_to_print}")
-        
-        output_text = getattr(item, 'output', "[No output property found]")
-        for line in str(output_text).strip().split('\n'):
-            print(f"   | {line}")
-
-final_output = ItemHelpers.text_message_outputs(result.new_items)
-
-if final_output:
-    print(f"\n✅ [Final Answer] Agent '{OrchestratorAgent.name}' has concluded:")
-    for line in final_output.strip().split('\n'):
-        print(f"   | {line}")
-else:
-    print(f"\n⚠️ [Warning] Agent '{OrchestratorAgent.name}' finished without a clear final text output.")
+    # Jupyter notebook execution
+    # Uncomment and modify the following lines as needed:
+    # custom_topic = "Is remote work better than office work?"
+    # custom_model = "gpt-4o"
+    # await main(topic_override=custom_topic, model_override=custom_model)
+    pass
