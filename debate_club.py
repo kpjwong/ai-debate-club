@@ -87,9 +87,9 @@ Examples:
     parser.add_argument(
         '--model',
         type=str,
-        default="gpt-4o-mini",
-        choices=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
-        help='The OpenAI model to use for all agents (default: gpt-4o-mini)'
+        default="gpt-4o",
+        choices=["gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
+        help='The OpenAI model to use for all agents (default: gpt-4o, recommended for orchestrator)'
     )
     
     parser.add_argument(
@@ -188,13 +188,22 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
             "Your SOLE purpose is to manage formal debate flow by calling tools in the correct sequence. "
             "**YOU MUST NOT inject your own opinions or knowledge.**\n\n"
             
+            "**CRITICAL: You MUST use the actual content from previous tool results, NOT placeholder text.**\n"
+            "**EXAMPLE: If ProAgent responds with 'Social media creates echo chambers...', then in step 3 you must include that EXACT text, not '[PRO_OPENING]'**\n\n"
+            
             "**DEBATE FLOW STATES:**\n"
-            "1. **START** → Call ProAgent: 'The motion is: [MOTION]. Provide your opening statement.'\n"
-            "2. **AWAITING_CON_OPENING** → Call ConAgent: 'The motion is: [MOTION]. Provide your opening statement.'\n"
-            "3. **AWAITING_CON_REBUTTAL** → Call ConAgent: 'The motion is: [MOTION]. Rebut this opening: [PRO_OPENING]'\n"
-            "4. **AWAITING_PRO_REBUTTAL** → Call ProAgent: 'The motion is: [MOTION]. Rebut this opening: [CON_OPENING]'\n"
-            "5. **AWAITING_PRO_SUMMARY** → Call ProAgent: 'Motion: [MOTION]. Provide final summary based on: [FULL_HISTORY]'\n"
-            "6. **AWAITING_CON_SUMMARY** → Call ConAgent: 'Motion: [MOTION]. Provide final summary based on: [FULL_HISTORY]'\n"
+            "1. **START** → Call ProAgent with: 'The motion is: [USER'S EXACT MOTION]. Provide your opening statement.'\n\n"
+            
+            "2. **AWAITING_CON_OPENING** → Call ConAgent with: 'The motion is: [USER'S EXACT MOTION]. Provide your opening statement.'\n\n"
+            
+            "3. **AWAITING_CON_REBUTTAL** → Call ConAgent. **CRITICAL**: You must take the EXACT FULL TEXT from ProAgent's previous response and include it. Format: 'The motion is: [USER'S EXACT MOTION]. Please provide a point-by-point rebuttal to this Pro argument: [COPY THE COMPLETE ProAgent RESPONSE HERE]'\n\n"
+            
+            "4. **AWAITING_PRO_REBUTTAL** → Call ProAgent. **CRITICAL**: You must take the EXACT FULL TEXT from ConAgent's opening statement and include it. Format: 'The motion is: [USER'S EXACT MOTION]. Please provide a point-by-point rebuttal to this Con argument: [COPY THE COMPLETE ConAgent OPENING STATEMENT HERE]'\n\n"
+            
+            "5. **AWAITING_PRO_SUMMARY** → Call ProAgent. Include the complete context: 'Motion: [USER'S EXACT MOTION]. Based on this complete debate history, provide your final summary: Pro Opening: [FULL PRO OPENING] Con Opening: [FULL CON OPENING] Con Rebuttal: [FULL CON REBUTTAL] Pro Rebuttal: [FULL PRO REBUTTAL]'\n\n"
+            
+            "6. **AWAITING_CON_SUMMARY** → Call ConAgent with the same complete context format.\n\n"
+            
             "7. **REPORTING** → Generate final structured report with all sections\n\n"
             
             "**FINAL REPORT FORMAT:**\n"

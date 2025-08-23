@@ -235,9 +235,9 @@ def main():
         
         model = st.selectbox(
             "AI Model",
-            options=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+            options=["gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
             index=0,
-            help="Choose the OpenAI model for all agents"
+            help="Choose the OpenAI model for all agents (gpt-4o recommended for orchestrator)"
         )
         
         max_turns = st.slider(
