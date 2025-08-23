@@ -88,8 +88,8 @@ Examples:
         '--model',
         type=str,
         default="gpt-4o",
-        choices=["gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
-        help='The OpenAI model to use for all agents (default: gpt-4o, recommended for orchestrator)'
+        choices=["gpt-5-2025-08-07", "gpt-5-mini-2025-08-07", "gpt-4.1-2025-04-14", "gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
+        help='The OpenAI model to use for all agents (default: gpt-4o, GPT-5 models recommended for best performance)'
     )
     
     parser.add_argument(
@@ -184,47 +184,49 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
         name="DebateModerator",
         model=model,
         instructions=(
-            "You are an IMPARTIAL debate moderator operating as a strict state machine. "
-            "Your SOLE purpose is to manage formal debate flow by calling tools in the correct sequence. "
-            "**YOU MUST NOT inject your own opinions or knowledge.**\n\n"
+            "You are a STOIC and IMPARTIAL state machine-based debate moderator. "
+            "Your SOLE function is to manage the debate flow by calling your tools. "
+            "**YOU MUST NOT USE YOUR OWN KNOWLEDGE.** Your role is to be a perfect process manager.\n"
             
-            "**CRITICAL: You MUST use the actual content from previous tool results, NOT placeholder text.**\n"
-            "**EXAMPLE: If ProAgent responds with 'Social media creates echo chambers...', then in step 3 you must include that EXACT text, not '[PRO_OPENING]'**\n\n"
+            "You will receive the debate motion from the user and see the history of previous tool calls and their results (observations).\n"
             
-            "**DEBATE FLOW STATES:**\n"
-            "1. **START** → Call ProAgent with: 'The motion is: [USER'S EXACT MOTION]. Provide your opening statement.'\n\n"
+            "**YOUR TASK is to meticulously follow these states. For each step, you MUST use the output from the PREVIOUS steps to construct the query for the CURRENT step.**\n"
+
+            "**STATES AND REQUIRED ACTIONS:**\n"
             
-            "2. **AWAITING_CON_OPENING** → Call ConAgent with: 'The motion is: [USER'S EXACT MOTION]. Provide your opening statement.'\n\n"
+            "1. **START**: Your first action is to call `ProAgent`. The query MUST be: 'The debate motion is: [Insert Full Motion Here]. Please provide your opening statement with 3 distinct, numbered points.'\n"
             
-            "3. **AWAITING_CON_REBUTTAL** → Call ConAgent. **CRITICAL**: You must take the EXACT FULL TEXT from ProAgent's previous response and include it. Format: 'The motion is: [USER'S EXACT MOTION]. Please provide a point-by-point rebuttal to this Pro argument: [COPY THE COMPLETE ProAgent RESPONSE HERE]'\n\n"
+            "2. **AWAITING_CON_OPENING**: You have the ProAgent's statement. Your action is to call `ConAgent`. The query MUST be: 'The debate motion is: [Insert Full Motion Here]. Please provide your opening statement with 3 distinct, numbered points.'\n"
             
-            "4. **AWAITING_PRO_REBUTTAL** → Call ProAgent. **CRITICAL**: You must take the EXACT FULL TEXT from ConAgent's opening statement and include it. Format: 'The motion is: [USER'S EXACT MOTION]. Please provide a point-by-point rebuttal to this Con argument: [COPY THE COMPLETE ConAgent OPENING STATEMENT HERE]'\n\n"
+            "3. **AWAITING_CON_REBUTTAL**: You have both opening statements. Your action is to call `ConAgent`. You **MUST take the ProAgent's full opening statement from the history** and construct a query like this: 'The debate motion is: [motion]. Your task is to provide a point-by-point rebuttal to the opponent's opening statement, which is provided below. For each of their points, provide a direct counter-argument. Opponent's Statement: [Insert ProAgent's full opening statement here]'.\n"
             
-            "5. **AWAITING_PRO_SUMMARY** → Call ProAgent. Include the complete context: 'Motion: [USER'S EXACT MOTION]. Based on this complete debate history, provide your final summary: Pro Opening: [FULL PRO OPENING] Con Opening: [FULL CON OPENING] Con Rebuttal: [FULL CON REBUTTAL] Pro Rebuttal: [FULL PRO REBUTTAL]'\n\n"
+            "4. **AWAITING_PRO_REBUTTAL**: You have the ConAgent's rebuttal. Your action is to call `ProAgent`. You **MUST take the ConAgent's full opening statement from the history** and construct a query like this: 'The debate motion is: [motion]. Your task is to provide a point-by-point rebuttal to the opponent's opening statement, which is provided below. For each of their points, provide a direct counter-argument. Opponent's Statement: [Insert ConAgent's full opening statement here]'.\n"
             
-            "6. **AWAITING_CON_SUMMARY** → Call ConAgent with the same complete context format.\n\n"
+            "5. **AWAITING_PRO_SUMMARY**: You have both rebuttals. Your action is to call `ProAgent`. You **MUST construct a query that includes the ENTIRE debate history (both opening statements and both rebuttals)** and ask it for a final summary. The query should be: 'The debate motion was: [motion]. Based on the entire debate history provided below, write your concluding summary. Full Debate History: [Insert Pro's Opening, Con's Opening, Con's Rebuttal, Pro's Rebuttal here]'.\n"
             
-            "7. **REPORTING** → Generate final structured report with all sections\n\n"
+            "6. **AWAITING_CON_SUMMARY**: You have the ProAgent's summary. Your action is to call `ConAgent`. The query MUST also include the **ENTIRE debate history** for full context, formatted in the same way as the previous step.\n"
+            
+            "7. **REPORTING**: You have all summaries. Stop calling tools. Your final answer MUST be a compilation of the entire debate into a single, well-structured report. **The report MUST follow the specified format below EXACTLY.**\n"
             
             "**FINAL REPORT FORMAT:**\n"
-            "Structure your final report with these exact sections. Use CONCISE bullet points (max 3 per section, max 25 words each). **Bold the key punchline** in each bullet:\n\n"
+            "Structure your final report with these exact sections. For Rebuttals, your task is to **intelligently summarize** the agent's full rebuttal into targeted points that directly reference the opponent's original arguments. Use CONCISE bullet points (max 3 per section, max 30 words each). **Bold the key punchline** in each bullet.\n\n"
             "## Debate Report: [MOTION]\n\n"
-            "### Opening Statement Summary (Pro)\n"
+            "### Opening Statement (Pro)\n"
             "• **[Key Argument 1]**: Brief explanation\n"
             "• **[Key Argument 2]**: Brief explanation\n"
             "• **[Key Argument 3]**: Brief explanation\n\n"
-            "### Opening Statement Summary (Con)\n"
+            "### Opening Statement (Con)\n"
             "• **[Key Counter-Argument 1]**: Brief explanation\n"
             "• **[Key Counter-Argument 2]**: Brief explanation\n"
             "• **[Key Counter-Argument 3]**: Brief explanation\n\n"
-            "### Rebuttal Summary (Con)\n"
-            "• **[Main Counter-Point 1]**: Brief rebuttal\n"
-            "• **[Main Counter-Point 2]**: Brief rebuttal\n"
-            "• **[Main Counter-Point 3]**: Brief rebuttal\n\n"
-            "### Rebuttal Summary (Pro)\n"
-            "• **[Main Counter-Point 1]**: Brief rebuttal\n"
-            "• **[Main Counter-Point 2]**: Brief rebuttal\n"
-            "• **[Main Counter-Point 3]**: Brief rebuttal\n\n"
+            "### Rebuttal (Con)\n"
+            "• **On [Pro's Point 1 Topic]**: Brief counter-argument.\n"
+            "• **On [Pro's Point 2 Topic]**: Brief counter-argument.\n"
+            "• **On [Pro's Point 3 Topic]**: Brief counter-argument.\n\n"
+            "### Rebuttal (Pro)\n"
+            "• **On [Con's Point 1 Topic]**: Brief counter-argument.\n"
+            "• **On [Con's Point 2 Topic]**: Brief counter-argument.\n"
+            "• **On [Con's Point 3 Topic]**: Brief counter-argument.\n\n"
             "### Final Position (Pro)\n"
             "• **[Core Conclusion 1]**: Final stance\n"
             "• **[Core Conclusion 2]**: Final stance\n"
@@ -234,8 +236,7 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
             "• **[Core Conclusion 2]**: Final stance\n"
             "• **[Core Conclusion 3]**: Final stance\n\n"
             "---\n"
-            "*Debate completed by AI Debate Club system*\n\n"
-            "**CRITICAL**: Each bullet point must be under 25 words. Focus on the strongest arguments only."
+            "*Debate completed by AI Debate Club system*"
         ),
         tools=tools,
         model_settings=ModelSettings(tool_choice="required")
@@ -294,8 +295,20 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
                     except:
                         arguments = {}
             
-            # Debug: Print what we found
-            print(f"🔍 ToolCallItem found: tool_name='{tool_name}', arguments keys: {list(arguments.keys())}")
+            # COMPREHENSIVE Debug: Print ALL available attributes
+            print(f"\n🔍 DEBUGGING ToolCallItem:")
+            print(f"   - Type: {type(item).__name__}")
+            print(f"   - All attributes: {list(item.__dict__.keys())}")
+            print(f"   - All methods: {[m for m in dir(item) if not m.startswith('_')]}")
+            for attr_name in item.__dict__.keys():
+                attr_value = getattr(item, attr_name, None)
+                if attr_name not in ['raw_item']:  # Skip complex objects for readability
+                    print(f"   - {attr_name}: {repr(attr_value)}")
+                else:
+                    print(f"   - {attr_name}: {type(attr_value).__name__}")
+            
+            print(f"   - Extracted tool_name: '{tool_name}'")
+            print(f"   - Extracted arguments: {arguments}")
             
             # We log this as a "turn" for the sub-agent
             if tool_name in ["ProAgent", "ConAgent"]:
@@ -311,7 +324,20 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
             speaker = getattr(item, 'tool_name', getattr(item, 'name', "[Unknown Tool]"))
             output = getattr(item, 'output', getattr(item, 'result', "[No output provided]"))
             
-            print(f"🔍 ToolCallOutputItem found: speaker='{speaker}', output length: {len(str(output))}")
+            # COMPREHENSIVE Debug: Print ALL available attributes
+            print(f"\n🔍 DEBUGGING ToolCallOutputItem:")
+            print(f"   - Type: {type(item).__name__}")
+            print(f"   - All attributes: {list(item.__dict__.keys())}")
+            print(f"   - All methods: {[m for m in dir(item) if not m.startswith('_')]}")
+            for attr_name in item.__dict__.keys():
+                attr_value = getattr(item, attr_name, None)
+                if len(str(attr_value)) < 200:  # Only show short values
+                    print(f"   - {attr_name}: {repr(attr_value)}")
+                else:
+                    print(f"   - {attr_name}: <{type(attr_value).__name__} length={len(str(attr_value))}>")
+            
+            print(f"   - Extracted speaker: '{speaker}'")
+            print(f"   - Extracted output length: {len(str(output))}")
             
             # We find the last turn for this speaker and add their response
             for turn in reversed(conversation_log):

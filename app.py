@@ -121,17 +121,23 @@ def check_api_key():
         return True
     return False
 
-async def run_debate(topic: str, model: str, max_turns: int):
+async def run_debate(topic: str, model: str, max_turns: int, progress_callback=None):
     """Run the debate and return results"""
     try:
         # Setup OpenAI client
+        if progress_callback:
+            progress_callback(0, "Setting up OpenAI client...")
         setup_openai_client()
         
         # Create agents
+        if progress_callback:
+            progress_callback(1, "Creating Pro and Con agents...")
         pro_agent = create_pro_agent(model)
         con_agent = create_con_agent(model)
         
         # Create tools
+        if progress_callback:
+            progress_callback(2, "Setting up agent tools...")
         pro_tool = create_tool_from_agent(
             pro_agent, 
             "Use this to get arguments FOR the motion (pro/affirmative side)"
@@ -142,10 +148,17 @@ async def run_debate(topic: str, model: str, max_turns: int):
         )
         
         # Create orchestrator
+        if progress_callback:
+            progress_callback(3, "Creating debate orchestrator...")
         orchestrator = create_orchestrator_agent(model, [pro_tool, con_tool])
         
         # Run the debate
+        if progress_callback:
+            progress_callback(4, "Running debate (this may take a few minutes)...")
         final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns)
+        
+        if progress_callback:
+            progress_callback(5, "Debate completed! Processing results...")
         
         return {
             'success': True,
@@ -235,9 +248,9 @@ def main():
         
         model = st.selectbox(
             "AI Model",
-            options=["gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
-            index=0,
-            help="Choose the OpenAI model for all agents (gpt-4o recommended for orchestrator)"
+            options=["gpt-5-2025-08-07", "gpt-5-mini-2025-08-07", "gpt-4.1-2025-04-14", "gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
+            index=3,  # Default to gpt-4o (4th option)
+            help="Choose the OpenAI model for all agents (GPT-5 models recommended for best performance)"
         )
         
         max_turns = st.slider(
@@ -269,13 +282,14 @@ def main():
             
             # Run the debate
             try:
-                # Simulate progress updates
-                for i in range(5):
-                    progress_bar.progress((i + 1) * 20)
-                    status_text.text(f"Running debate step {i + 1}/5...")
+                # Create progress callback
+                def update_progress(step, message):
+                    progress = (step + 1) * 20
+                    progress_bar.progress(progress)
+                    status_text.text(f"Step {step + 1}/5: {message}")
                     
-                # Run the actual debate
-                results = asyncio.run(run_debate(topic, model, max_turns))
+                # Run the actual debate with meaningful progress
+                results = asyncio.run(run_debate(topic, model, max_turns, update_progress))
                 
                 # Store results and update state
                 st.session_state.debate_results = results
