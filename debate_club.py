@@ -239,7 +239,7 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
             "*Debate completed by AI Debate Club system*"
         ),
         tools=tools,
-        model_settings=ModelSettings(tool_choice="required")
+        model_settings=ModelSettings(tool_choice="auto")
     )
 
 # =============================================================================
@@ -279,32 +279,23 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
             tool_name = "Unknown Tool"
             arguments = {}
             
-            # Try multiple ways to extract tool call information
-            if hasattr(item, 'name') and item.name:
-                tool_name = item.name
-            elif hasattr(item, 'tool_name') and item.tool_name:
-                tool_name = item.tool_name
-            elif hasattr(item, 'raw_item') and item.raw_item:
+            # FIXED: Use actual attributes from the debug log
+            if hasattr(item, 'raw_item') and item.raw_item:
                 raw_call = item.raw_item
-                if hasattr(raw_call, 'function') and raw_call.function:
-                    tool_name = getattr(raw_call.function, 'name', tool_name)
+                # From debug log: raw_item has 'name' and 'arguments' directly
+                tool_name = getattr(raw_call, 'name', tool_name)
+                try:
+                    args_str = getattr(raw_call, 'arguments', '{}')
+                    arguments = json.loads(args_str) if isinstance(args_str, str) else args_str
+                except:
+                    arguments = {}
             
-            # Try to extract arguments
-            if hasattr(item, 'arguments') and item.arguments:
-                if isinstance(item.arguments, dict):
-                    arguments = item.arguments
-                else:
-                    try:
-                        arguments = json.loads(str(item.arguments))
-                    except:
-                        arguments = {}
-            elif hasattr(item, 'raw_item') and item.raw_item:
-                raw_call = item.raw_item
-                if hasattr(raw_call, 'function') and raw_call.function:
-                    try:
-                        arguments = json.loads(getattr(raw_call.function, 'arguments', '{}'))
-                    except:
-                        arguments = {}
+            # Fallback methods if the above doesn't work
+            if tool_name == "Unknown Tool":
+                if hasattr(item, 'name') and item.name:
+                    tool_name = item.name
+                elif hasattr(item, 'tool_name') and item.tool_name:
+                    tool_name = item.tool_name
             
             # ULTRA-COMPREHENSIVE Debug: Try every possible way to extract data
             print(f"\n🔍 ULTRA-DEBUGGING ToolCallItem:")
@@ -394,8 +385,27 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
 
         elif isinstance(item, ToolCallOutputItem):
             # This is the sub-agent's response (Observation)
-            speaker = getattr(item, 'tool_name', getattr(item, 'name', "[Unknown Tool]"))
-            output = getattr(item, 'output', getattr(item, 'result', "[No output provided]"))
+            # FIXED: From debug log, we know these items have 'output' directly
+            output = getattr(item, 'output', "[No output provided]")
+            
+            # For speaker, we need to match it with the corresponding ToolCallItem
+            # For now, let's extract from raw_item if available
+            speaker = "[Unknown Tool]"
+            if hasattr(item, 'raw_item') and item.raw_item:
+                raw_output = item.raw_item
+                if isinstance(raw_output, dict) and 'call_id' in raw_output:
+                    # Try to find matching call_id in previous ToolCallItems
+                    call_id = raw_output['call_id']
+                    # For now, we'll use a simpler approach and match by position
+                    pass
+            
+            # Fallback: try to get speaker from recent conversation log entries
+            if conversation_log and not speaker or speaker == "[Unknown Tool]":
+                # Find the most recent entry without a response
+                for turn in reversed(conversation_log):
+                    if "response" not in turn:
+                        speaker = turn["speaker"]
+                        break
             
             # ULTRA-COMPREHENSIVE Debug for ToolCallOutputItem
             print(f"\n🔍 ULTRA-DEBUGGING ToolCallOutputItem:")
@@ -452,6 +462,20 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
                     turn["response"] = output
                     print(f"✅ Added response to {speaker}: {str(output)[:50]}...")
                     break
+        
+        elif isinstance(item, MessageOutputItem):
+            # This is the Orchestrator's final message or intermediate reasoning
+            print(f"\n💬 MessageOutputItem found:")
+            if hasattr(item, 'raw_item') and item.raw_item:
+                raw_msg = item.raw_item
+                if hasattr(raw_msg, 'content'):
+                    content_items = raw_msg.content if isinstance(raw_msg.content, list) else [raw_msg.content]
+                    for content in content_items:
+                        if hasattr(content, 'text'):
+                            print(f"   Message: {content.text[:100]}...")
+                            # If this contains "REPORTING" or looks like a final report, it's our final answer
+                            if "REPORTING" in content.text or "Debate Report:" in content.text:
+                                print("   🎯 This appears to be the final debate report!")
     
     # Get the final report from the Orchestrator with comprehensive error handling
     try:
@@ -614,7 +638,7 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
     
     # Run the debate with verbose logging
     print("\n🚀 Starting debate execution...")
-    final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns)
+    final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns, None)
     
     print(f"\n🎉 Debate completed!")
     print("\n" + "="*80)
