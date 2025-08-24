@@ -54,7 +54,7 @@ def setup_openai_client():
     """Setup OpenAI clients with API key"""
     api_key = os.getenv("OPENAI_API_KEY", OPENAI_API_KEY)
     if not api_key or api_key == "sk-your-api-key-here":
-        print("⚠️  Warning: Please set your OpenAI API key in the OPENAI_API_KEY environment variable")
+        print("Warning: Please set your OpenAI API key in the OPENAI_API_KEY environment variable")
         print("   or update the OPENAI_API_KEY variable in this script.")
         sys.exit(1)
     
@@ -114,12 +114,12 @@ def create_pro_agent(model: str) -> Agent:
             "You are a skilled debater arguing IN FAVOR of the motion. "
             "Your role is to present compelling arguments that support the given position. "
             "\n\nGuidelines:"
-            "\n• Provide clear, logical, and evidence-based arguments"
-            "\n• Use specific examples and data when possible"
-            "\n• When asked to rebut, directly address your opponent's points"
-            "\n• Maintain a professional and respectful tone"
-            "\n• Keep responses concise and focused on core arguments"
-            "\n• Structure your arguments with clear reasoning"
+            "\n- Provide clear, logical, and evidence-based arguments"
+            "\n- Use specific examples and data when possible"
+            "\n- When asked to rebut, directly address your opponent's points"
+            "\n- Maintain a professional and respectful tone"
+            "\n- Keep responses concise and focused on core arguments"
+            "\n- Structure your arguments with clear reasoning"
         ),
         tools=[]
     )
@@ -133,12 +133,12 @@ def create_con_agent(model: str) -> Agent:
             "You are a skilled debater arguing AGAINST the motion. "
             "Your role is to present compelling arguments that oppose the given position. "
             "\n\nGuidelines:"
-            "\n• Provide clear, logical, and evidence-based arguments"
-            "\n• Use specific examples and data when possible"
-            "\n• When asked to rebut, directly address your opponent's points"
-            "\n• Maintain a professional and respectful tone"
-            "\n• Keep responses concise and focused on core arguments"
-            "\n• Structure your arguments with clear reasoning"
+            "\n- Provide clear, logical, and evidence-based arguments"
+            "\n- Use specific examples and data when possible"
+            "\n- When asked to rebut, directly address your opponent's points"
+            "\n- Maintain a professional and respectful tone"
+            "\n- Keep responses concise and focused on core arguments"
+            "\n- Structure your arguments with clear reasoning"
         ),
         tools=[]
     )
@@ -184,69 +184,91 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
         name="DebateModerator",
         model=model,
         instructions=(
-            "You are a STOIC and IMPARTIAL state machine-based debate moderator. "
-            "Your SOLE function is to manage the debate flow by calling your tools. "
-            "**YOU MUST NOT USE YOUR OWN KNOWLEDGE.** Your role is to be a perfect process manager.\n"
+            "You are a debate moderator. Execute the debate sequence by calling tools. DO NOT explain your actions.\n\n"
             
-            "You will receive the debate motion from the user and see the history of previous tool calls and their results (observations).\n"
+            "DEBATE FLOW (execute each step automatically):\n"
+            "1. Call ProAgent with: 'The debate motion is: [motion]. Please provide your opening statement with 3 distinct, numbered points.'\n"
+            "2. Call ConAgent with: 'The debate motion is: [motion]. Please provide your opening statement with 3 distinct, numbered points.'\n"
+            "3. Call ConAgent with pro's opening for rebuttal\n"
+            "4. Call ProAgent with con's opening for rebuttal\n"
+            "5. Call ProAgent for final summary with full debate history\n"
+            "6. Call ConAgent for final summary with full debate history\n"
+            "7. Generate final report using this format:\n\n"
             
-            "**YOUR TASK is to meticulously follow these states. For each step, you MUST use the output from the PREVIOUS steps to construct the query for the CURRENT step.**\n"
-
-            "**STATES AND REQUIRED ACTIONS:**\n"
-            
-            "1. **START**: Your first action is to call `ProAgent`. The query MUST be: 'The debate motion is: [Insert Full Motion Here]. Please provide your opening statement with 3 distinct, numbered points.'\n"
-            
-            "2. **AWAITING_CON_OPENING**: You have the ProAgent's statement. Your action is to call `ConAgent`. The query MUST be: 'The debate motion is: [Insert Full Motion Here]. Please provide your opening statement with 3 distinct, numbered points.'\n"
-            
-            "3. **AWAITING_CON_REBUTTAL**: You have both opening statements. Your action is to call `ConAgent`. You **MUST take the ProAgent's full opening statement from the history** and construct a query like this: 'The debate motion is: [motion]. Your task is to provide a point-by-point rebuttal to the opponent's opening statement, which is provided below. For each of their points, provide a direct counter-argument. Opponent's Statement: [Insert ProAgent's full opening statement here]'.\n"
-            
-            "4. **AWAITING_PRO_REBUTTAL**: You have the ConAgent's rebuttal. Your action is to call `ProAgent`. You **MUST take the ConAgent's full opening statement from the history** and construct a query like this: 'The debate motion is: [motion]. Your task is to provide a point-by-point rebuttal to the opponent's opening statement, which is provided below. For each of their points, provide a direct counter-argument. Opponent's Statement: [Insert ConAgent's full opening statement here]'.\n"
-            
-            "5. **AWAITING_PRO_SUMMARY**: You have both rebuttals. Your action is to call `ProAgent`. You **MUST construct a query that includes the ENTIRE debate history (both opening statements and both rebuttals)** and ask it for a final summary. The query should be: 'The debate motion was: [motion]. Based on the entire debate history provided below, write your concluding summary. Full Debate History: [Insert Pro's Opening, Con's Opening, Con's Rebuttal, Pro's Rebuttal here]'.\n"
-            
-            "6. **AWAITING_CON_SUMMARY**: You have the ProAgent's summary. Your action is to call `ConAgent`. The query MUST also include the **ENTIRE debate history** for full context, formatted in the same way as the previous step.\n"
-            
-            "7. **REPORTING**: You have all summaries. Stop calling tools. Your final answer MUST be a compilation of the entire debate into a single, well-structured report. **The report MUST follow the specified format below EXACTLY.**\n"
-            
-            "**FINAL REPORT FORMAT:**\n"
-            "Structure your final report with these exact sections. For Rebuttals, your task is to **intelligently summarize** the agent's full rebuttal into targeted points that directly reference the opponent's original arguments. Use CONCISE bullet points (max 3 per section, max 30 words each). **Bold the key punchline** in each bullet.\n\n"
             "## Debate Report: [MOTION]\n\n"
             "### Opening Statement (Pro)\n"
-            "• **[Key Argument 1]**: Brief explanation\n"
-            "• **[Key Argument 2]**: Brief explanation\n"
-            "• **[Key Argument 3]**: Brief explanation\n\n"
+            "- **[Key Argument 1]**: Brief explanation\n"
+            "- **[Key Argument 2]**: Brief explanation\n"
+            "- **[Key Argument 3]**: Brief explanation\n\n"
             "### Opening Statement (Con)\n"
-            "• **[Key Counter-Argument 1]**: Brief explanation\n"
-            "• **[Key Counter-Argument 2]**: Brief explanation\n"
-            "• **[Key Counter-Argument 3]**: Brief explanation\n\n"
+            "- **[Key Counter-Argument 1]**: Brief explanation\n"
+            "- **[Key Counter-Argument 2]**: Brief explanation\n"
+            "- **[Key Counter-Argument 3]**: Brief explanation\n\n"
             "### Rebuttal (Con)\n"
-            "• **On [Pro's Point 1 Topic]**: Brief counter-argument.\n"
-            "• **On [Pro's Point 2 Topic]**: Brief counter-argument.\n"
-            "• **On [Pro's Point 3 Topic]**: Brief counter-argument.\n\n"
+            "- **On [Pro's Point 1 Topic]**: Brief counter-argument.\n"
+            "- **On [Pro's Point 2 Topic]**: Brief counter-argument.\n"
+            "- **On [Pro's Point 3 Topic]**: Brief counter-argument.\n\n"
             "### Rebuttal (Pro)\n"
-            "• **On [Con's Point 1 Topic]**: Brief counter-argument.\n"
-            "• **On [Con's Point 2 Topic]**: Brief counter-argument.\n"
-            "• **On [Con's Point 3 Topic]**: Brief counter-argument.\n\n"
+            "- **On [Con's Point 1 Topic]**: Brief counter-argument.\n"
+            "- **On [Con's Point 2 Topic]**: Brief counter-argument.\n"
+            "- **On [Con's Point 3 Topic]**: Brief counter-argument.\n\n"
             "### Final Position (Pro)\n"
-            "• **[Core Conclusion 1]**: Final stance\n"
-            "• **[Core Conclusion 2]**: Final stance\n"
-            "• **[Core Conclusion 3]**: Final stance\n\n"
+            "- **[Core Conclusion 1]**: Final stance\n"
+            "- **[Core Conclusion 2]**: Final stance\n"
+            "- **[Core Conclusion 3]**: Final stance\n\n"
             "### Final Position (Con)\n"
-            "• **[Core Conclusion 1]**: Final stance\n"
-            "• **[Core Conclusion 2]**: Final stance\n"
-            "• **[Core Conclusion 3]**: Final stance\n\n"
+            "- **[Core Conclusion 1]**: Final stance\n"
+            "- **[Core Conclusion 2]**: Final stance\n"
+            "- **[Core Conclusion 3]**: Final stance\n\n"
             "---\n"
             "*Debate completed by AI Debate Club system*"
         ),
         tools=tools,
-        model_settings=ModelSettings(tool_choice="auto")
+        model_settings=ModelSettings(tool_choice="required")
     )
 
 # =============================================================================
 # 5. VERBOSE RUNNER FUNCTION
 # =============================================================================
 
-async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progress_callback=None) -> tuple:
+def clean_unicode_for_windows(text: str) -> str:
+    """Clean Unicode characters that cause Windows terminal encoding issues"""
+    if not text:
+        return text
+    
+    # Convert to string if not already
+    text = str(text)
+    
+    unicode_replacements = {
+        '\u2011': '-',  # Non-breaking hyphen
+        '\u2013': '-',  # En dash  
+        '\u2014': '--', # Em dash
+        '\u2018': "'",  # Left single quote
+        '\u2019': "'",  # Right single quote
+        '\u201c': '"',  # Left double quote
+        '\u201d': '"',  # Right double quote
+        '\u2026': '...', # Ellipsis
+        '\u00a0': ' ',  # Non-breaking space
+        '\u2022': '-',  # Bullet point
+        '\u25cf': '-',  # Black circle
+        '\u2460': '1',  # Circled digit one
+        '\u2461': '2',  # Circled digit two
+        '\u2462': '3',  # Circled digit three
+        '\u2010': '-',  # Hyphen
+        '\u00ad': '-',  # Soft hyphen
+    }
+    
+    for unicode_char, replacement in unicode_replacements.items():
+        text = text.replace(unicode_char, replacement)
+    
+    return text
+
+def safe_print(*args, **kwargs):
+    """Safe print function that cleans Unicode characters before printing"""
+    cleaned_args = [clean_unicode_for_windows(str(arg)) for arg in args]
+    print(*cleaned_args, **kwargs)
+
+async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progress_callback=None, debug_mode: bool = False) -> tuple:
     """
     MODIFIED: Runs an agent and RETURNS a structured log and the final report.
     Returns: A tuple containing (final_report_string, conversation_log_list)
@@ -297,14 +319,15 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
                 elif hasattr(item, 'tool_name') and item.tool_name:
                     tool_name = item.tool_name
             
-            # ULTRA-COMPREHENSIVE Debug: Try every possible way to extract data
-            print(f"\n🔍 ULTRA-DEBUGGING ToolCallItem:")
-            print(f"   📋 Basic Info:")
-            print(f"      - Type: {type(item).__name__}")
-            print(f"      - All attributes: {list(item.__dict__.keys())}")
-            print(f"      - All methods: {[m for m in dir(item) if not m.startswith('_') and callable(getattr(item, m, None))]}")
+            # ULTRA-COMPREHENSIVE Debug: Try every possible way to extract data (disabled by default to avoid Unicode issues)
+            if debug_mode:
+                safe_print(f"\nULTRA-DEBUGGING ToolCallItem:")
+                safe_print(f"    Basic Info:")
+                safe_print(f"      - Type: {type(item).__name__}")
+                safe_print(f"      - All attributes: {list(item.__dict__.keys())}")
+                safe_print(f"      - All methods: {[m for m in dir(item) if not m.startswith('_') and callable(getattr(item, m, None))]}")
             
-            print(f"   📊 Direct Attributes:")
+            print(f"    Direct Attributes:")
             for attr_name in item.__dict__.keys():
                 attr_value = getattr(item, attr_name, None)
                 if attr_name not in ['raw_item']:
@@ -323,7 +346,7 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
                             if hasattr(func, 'arguments'):
                                 print(f"         * function.arguments: {repr(func.arguments)}")
             
-            print(f"   🔧 Multiple Extraction Attempts:")
+            print(f"    Multiple Extraction Attempts:")
             # Try method 1: Direct attributes
             method1_name = getattr(item, 'name', None)
             method1_args = getattr(item, 'arguments', None)
@@ -349,18 +372,21 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
             except:
                 print(f"      - Method 4 (vars): Failed")
             
-            print(f"   ✅ Final Extraction Results:")
+            print(f"    Final Extraction Results:")
             print(f"      - tool_name: '{tool_name}'")
             print(f"      - arguments: {arguments}")
             
             # We log this as a "turn" for the sub-agent
             if tool_name in ["ProAgent", "ConAgent"]:
                 content = arguments.get('query', arguments.get('input', "[No query provided]"))
+                # Clean Unicode from content before logging
+                content = clean_unicode_for_windows(content)
                 conversation_log.append({
                     "speaker": tool_name,
                     "content": content
                 })
-                print(f"✅ Added conversation turn: {tool_name} -> {content[:50]}...")
+                if debug_mode:
+                    safe_print(f" Added conversation turn: {tool_name} -> {content[:50]}...")
                 
                 # Real-time progress updates during actual debate
                 if progress_callback:
@@ -408,13 +434,14 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
                         break
             
             # ULTRA-COMPREHENSIVE Debug for ToolCallOutputItem
-            print(f"\n🔍 ULTRA-DEBUGGING ToolCallOutputItem:")
-            print(f"   📋 Basic Info:")
-            print(f"      - Type: {type(item).__name__}")
-            print(f"      - All attributes: {list(item.__dict__.keys())}")
-            print(f"      - All methods: {[m for m in dir(item) if not m.startswith('_') and callable(getattr(item, m, None))]}")
+            if debug_mode:
+                safe_print(f"\nULTRA-DEBUGGING ToolCallOutputItem:")
+                safe_print(f"    Basic Info:")
+                safe_print(f"      - Type: {type(item).__name__}")
+                safe_print(f"      - All attributes: {list(item.__dict__.keys())}")
+                safe_print(f"      - All methods: {[m for m in dir(item) if not m.startswith('_') and callable(getattr(item, m, None))]}")
             
-            print(f"   📊 Direct Attributes:")
+            print(f"    Direct Attributes:")
             for attr_name in item.__dict__.keys():
                 attr_value = getattr(item, attr_name, None)
                 if len(str(attr_value)) < 200:  # Show short values
@@ -424,7 +451,7 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
                     # Show first 100 characters of long values
                     print(f"         Preview: {repr(str(attr_value)[:100])}...")
             
-            print(f"   🔧 Multiple Extraction Attempts:")
+            print(f"    Multiple Extraction Attempts:")
             # Try method 1: tool_name attribute
             method1_speaker = getattr(item, 'tool_name', None)
             method1_output = getattr(item, 'output', None)
@@ -452,34 +479,38 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
             except:
                 print(f"      - Method 4 (vars): Failed")
             
-            print(f"   ✅ Final Extraction Results:")
+            print(f"    Final Extraction Results:")
             print(f"      - speaker: '{speaker}'")
             print(f"      - output length: {len(str(output))}")
             
             # We find the last turn for this speaker and add their response
             for turn in reversed(conversation_log):
                 if turn["speaker"] == speaker and "response" not in turn:
-                    turn["response"] = output
-                    print(f"✅ Added response to {speaker}: {str(output)[:50]}...")
+                    # Clean Unicode from output before storing
+                    cleaned_output = clean_unicode_for_windows(str(output))
+                    turn["response"] = cleaned_output
+                    if debug_mode:
+                        safe_print(f" Added response to {speaker}: {str(cleaned_output)[:50]}...")
                     break
         
         elif isinstance(item, MessageOutputItem):
             # This is the Orchestrator's final message or intermediate reasoning
-            print(f"\n💬 MessageOutputItem found:")
+            print(f"\n  MessageOutputItem found:")
             if hasattr(item, 'raw_item') and item.raw_item:
                 raw_msg = item.raw_item
                 if hasattr(raw_msg, 'content'):
                     content_items = raw_msg.content if isinstance(raw_msg.content, list) else [raw_msg.content]
                     for content in content_items:
                         if hasattr(content, 'text'):
-                            print(f"   Message: {content.text[:100]}...")
+                            cleaned_text = clean_unicode_for_windows(content.text[:100])
+                            print(f"   Message: {cleaned_text}...")
                             # If this contains "REPORTING" or looks like a final report, it's our final answer
                             if "REPORTING" in content.text or "Debate Report:" in content.text:
-                                print("   🎯 This appears to be the final debate report!")
+                                print("     This appears to be the final debate report!")
     
     # Get the final report from the Orchestrator with comprehensive error handling
     try:
-        print(f"\n📝 EXTRACTING FINAL REPORT:")
+        print(f"\n EXTRACTING FINAL REPORT:")
         print(f"   - Total result items: {len(result.new_items)}")
         
         final_report = ItemHelpers.text_message_outputs(result.new_items)
@@ -489,8 +520,9 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
         if final_report:
             # Clean the final report to avoid display issues
             final_report = str(final_report).strip()
-            # Remove any potential problematic characters
+            # Remove any potential problematic characters and Unicode
             final_report = final_report.replace('\x00', '').replace('\r\n', '\n')
+            final_report = clean_unicode_for_windows(final_report)
             print(f"   - Cleaned final_report length: {len(final_report)}")
             print(f"   - Final report preview: {repr(final_report[:200])}...")
         else:
@@ -498,8 +530,8 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
             final_report = "The debate concluded without a final report."
             
     except Exception as e:
-        print(f"   ❌ Error extracting final report: {e}")
-        print(f"   📊 Available result.new_items types: {[type(item).__name__ for item in result.new_items]}")
+        print(f"     Error extracting final report: {e}")
+        print(f"    Available result.new_items types: {[type(item).__name__ for item in result.new_items]}")
         final_report = f"Error generating final report: {str(e)}"
 
     # Create logs directory if it doesn't exist
@@ -574,7 +606,7 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
             'items': debug_data
         }, f, indent=2, ensure_ascii=False)
     
-    print(f"\n📁 Debug logs saved:")
+    print(f"\n  Debug logs saved:")
     print(f"   - Conversation: {conversation_log_file}")
     print(f"   - Report: {report_file}")
     print(f"   - Raw Debug: {raw_debug_file}")
@@ -605,11 +637,11 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
         model = model_override
         max_turns = 20
     
-    print(f"\n🎭 AI DEBATE CLUB")
+    print(f"\nAI DEBATE CLUB")
     print("="*50)
-    print(f"📝 Topic: {topic}")
-    print(f"🧠 Model: {model}")
-    print(f"🔄 Max Turns: {max_turns}")
+    print(f"Topic: {topic}")
+    print(f"Model: {model}")
+    print(f"Max Turns: {max_turns}")
     print("="*50)
     
     # Setup OpenAI client
@@ -618,7 +650,7 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
     # Create L1 Specialist Agents
     pro_agent = create_pro_agent(model)
     con_agent = create_con_agent(model)
-    print("✅ L1 Debater agents created")
+    print(" L1 Debater agents created")
     
     # Create agent-as-tool wrappers
     pro_tool = create_tool_from_agent(
@@ -630,17 +662,17 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
         "Use this to get arguments AGAINST the motion (con/negative side)"
     )
     orchestrator_tools = [pro_tool, con_tool]
-    print("✅ Agent tools wrapped for orchestrator")
+    print(" Agent tools wrapped for orchestrator")
     
     # Create L2 Orchestrator Agent
     orchestrator = create_orchestrator_agent(model, orchestrator_tools)
-    print("✅ L2 Orchestrator agent created")
+    print(" L2 Orchestrator agent created")
     
     # Run the debate with verbose logging
-    print("\n🚀 Starting debate execution...")
-    final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns, None)
+    print("\nStarting debate execution...")
+    final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns, None, debug_mode=False)
     
-    print(f"\n🎉 Debate completed!")
+    print(f"\nDebate completed!")
     print("\n" + "="*80)
     print("FINAL REPORT:")
     print("="*80)

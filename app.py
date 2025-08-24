@@ -155,7 +155,7 @@ async def run_debate(topic: str, model: str, max_turns: int, progress_callback=N
         # Run the debate
         if progress_callback:
             progress_callback(4, "Running debate (this may take a few minutes)...")
-        final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns, progress_callback)
+        final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns, progress_callback, debug_mode=False)
         
         if progress_callback:
             progress_callback(5, "Debate completed! Processing results...")
