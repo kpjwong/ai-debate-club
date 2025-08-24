@@ -155,7 +155,7 @@ async def run_debate(topic: str, model: str, max_turns: int, progress_callback=N
         # Run the debate
         if progress_callback:
             progress_callback(4, "Running debate (this may take a few minutes)...")
-        final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns)
+        final_report, conversation_log = await verbose_run_final(orchestrator, topic, max_turns, progress_callback)
         
         if progress_callback:
             progress_callback(5, "Debate completed! Processing results...")
@@ -284,9 +284,15 @@ def main():
             try:
                 # Create progress callback
                 def update_progress(step, message):
-                    progress = (step + 1) * 20
-                    progress_bar.progress(progress)
-                    status_text.text(f"Step {step + 1}/5: {message}")
+                    if step < 4:
+                        # Setup steps: 0-3 map to 0-80%
+                        progress = (step + 1) * 20
+                        status_text.text(f"Step {step + 1}/7: {message}")
+                    else:
+                        # Debate steps: 4+ map to 80-100%
+                        progress = min(80 + (step - 4) * 10, 100)
+                        status_text.text(f"🎭 {message}")
+                    progress_bar.progress(int(progress))
                     
                 # Run the actual debate with meaningful progress
                 results = asyncio.run(run_debate(topic, model, max_turns, update_progress))
@@ -328,9 +334,18 @@ def main():
                 
                 st.divider()
                 
-                # Display the final report
+                # Display the final report with error handling
                 st.markdown('<div class="debate-report">', unsafe_allow_html=True)
-                st.markdown(results['final_report'])
+                try:
+                    final_report = results.get('final_report', 'No final report available')
+                    if final_report and str(final_report).strip():
+                        st.markdown(str(final_report))
+                    else:
+                        st.warning("⚠️ Final report is empty or unavailable")
+                        st.info("💡 Check the logs directory for debug information")
+                except Exception as e:
+                    st.error(f"❌ Error displaying final report: {str(e)}")
+                    st.code(f"Raw report data: {repr(results.get('final_report', 'None'))}")
                 st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Download button

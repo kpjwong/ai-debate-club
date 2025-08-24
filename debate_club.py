@@ -246,7 +246,7 @@ def create_orchestrator_agent(model: str, tools: list) -> Agent:
 # 5. VERBOSE RUNNER FUNCTION
 # =============================================================================
 
-async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tuple:
+async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progress_callback=None) -> tuple:
     """
     MODIFIED: Runs an agent and RETURNS a structured log and the final report.
     Returns: A tuple containing (final_report_string, conversation_log_list)
@@ -258,6 +258,17 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
     conversation_log = []
     
     print(f"\n>>> Starting run for Agent: '{agent.name}' with Query: '{query}' <<<")
+    
+    # Initialize progress tracking
+    debate_stage_map = {
+        "ProAgent": ["Opening statement (Pro)", "Rebuttal (Pro)", "Final summary (Pro)"],
+        "ConAgent": ["Opening statement (Con)", "Rebuttal (Con)", "Final summary (Con)"]
+    }
+    pro_calls = 0
+    con_calls = 0
+    
+    if progress_callback:
+        progress_callback(4, "Pro Agent: Preparing opening statement...")
     
     result = await Runner.run(agent, query, max_turns=max_turns)
     
@@ -295,20 +306,61 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
                     except:
                         arguments = {}
             
-            # COMPREHENSIVE Debug: Print ALL available attributes
-            print(f"\n🔍 DEBUGGING ToolCallItem:")
-            print(f"   - Type: {type(item).__name__}")
-            print(f"   - All attributes: {list(item.__dict__.keys())}")
-            print(f"   - All methods: {[m for m in dir(item) if not m.startswith('_')]}")
+            # ULTRA-COMPREHENSIVE Debug: Try every possible way to extract data
+            print(f"\n🔍 ULTRA-DEBUGGING ToolCallItem:")
+            print(f"   📋 Basic Info:")
+            print(f"      - Type: {type(item).__name__}")
+            print(f"      - All attributes: {list(item.__dict__.keys())}")
+            print(f"      - All methods: {[m for m in dir(item) if not m.startswith('_') and callable(getattr(item, m, None))]}")
+            
+            print(f"   📊 Direct Attributes:")
             for attr_name in item.__dict__.keys():
                 attr_value = getattr(item, attr_name, None)
-                if attr_name not in ['raw_item']:  # Skip complex objects for readability
-                    print(f"   - {attr_name}: {repr(attr_value)}")
+                if attr_name not in ['raw_item']:
+                    print(f"      - {attr_name}: {repr(attr_value)}")
                 else:
-                    print(f"   - {attr_name}: {type(attr_value).__name__}")
+                    print(f"      - {attr_name}: {type(attr_value).__name__}")
+                    # Deep inspect raw_item
+                    if attr_value:
+                        print(f"         * raw_item attributes: {list(attr_value.__dict__.keys()) if hasattr(attr_value, '__dict__') else 'No __dict__'}")
+                        if hasattr(attr_value, 'function'):
+                            func = attr_value.function
+                            print(f"         * function type: {type(func).__name__}")
+                            print(f"         * function attributes: {list(func.__dict__.keys()) if hasattr(func, '__dict__') else 'No __dict__'}")
+                            if hasattr(func, 'name'):
+                                print(f"         * function.name: {repr(func.name)}")
+                            if hasattr(func, 'arguments'):
+                                print(f"         * function.arguments: {repr(func.arguments)}")
             
-            print(f"   - Extracted tool_name: '{tool_name}'")
-            print(f"   - Extracted arguments: {arguments}")
+            print(f"   🔧 Multiple Extraction Attempts:")
+            # Try method 1: Direct attributes
+            method1_name = getattr(item, 'name', None)
+            method1_args = getattr(item, 'arguments', None)
+            print(f"      - Method 1 (direct): name={repr(method1_name)}, args={repr(method1_args)}")
+            
+            # Try method 2: Through tool_name
+            method2_name = getattr(item, 'tool_name', None)  
+            print(f"      - Method 2 (tool_name): {repr(method2_name)}")
+            
+            # Try method 3: Through raw_item
+            method3_name, method3_args = None, None
+            if hasattr(item, 'raw_item') and item.raw_item:
+                raw = item.raw_item
+                if hasattr(raw, 'function'):
+                    method3_name = getattr(raw.function, 'name', None)
+                    method3_args = getattr(raw.function, 'arguments', None)
+            print(f"      - Method 3 (raw_item): name={repr(method3_name)}, args={repr(method3_args)}")
+            
+            # Try method 4: vars() inspection
+            try:
+                vars_data = vars(item)
+                print(f"      - Method 4 (vars): {vars_data}")
+            except:
+                print(f"      - Method 4 (vars): Failed")
+            
+            print(f"   ✅ Final Extraction Results:")
+            print(f"      - tool_name: '{tool_name}'")
+            print(f"      - arguments: {arguments}")
             
             # We log this as a "turn" for the sub-agent
             if tool_name in ["ProAgent", "ConAgent"]:
@@ -318,26 +370,81 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
                     "content": content
                 })
                 print(f"✅ Added conversation turn: {tool_name} -> {content[:50]}...")
+                
+                # Real-time progress updates during actual debate
+                if progress_callback:
+                    if tool_name == "ProAgent":
+                        stage_messages = [
+                            "Pro Agent: Creating opening statement...",
+                            "Pro Agent: Preparing rebuttal...", 
+                            "Pro Agent: Writing final summary..."
+                        ]
+                        if pro_calls < len(stage_messages):
+                            progress_callback(4 + pro_calls * 0.5, stage_messages[pro_calls])
+                        pro_calls += 1
+                    elif tool_name == "ConAgent":
+                        stage_messages = [
+                            "Con Agent: Creating opening statement...",
+                            "Con Agent: Preparing rebuttal...",
+                            "Con Agent: Writing final summary..."
+                        ]
+                        if con_calls < len(stage_messages):
+                            progress_callback(4.25 + con_calls * 0.5, stage_messages[con_calls])
+                        con_calls += 1
 
         elif isinstance(item, ToolCallOutputItem):
             # This is the sub-agent's response (Observation)
             speaker = getattr(item, 'tool_name', getattr(item, 'name', "[Unknown Tool]"))
             output = getattr(item, 'output', getattr(item, 'result', "[No output provided]"))
             
-            # COMPREHENSIVE Debug: Print ALL available attributes
-            print(f"\n🔍 DEBUGGING ToolCallOutputItem:")
-            print(f"   - Type: {type(item).__name__}")
-            print(f"   - All attributes: {list(item.__dict__.keys())}")
-            print(f"   - All methods: {[m for m in dir(item) if not m.startswith('_')]}")
+            # ULTRA-COMPREHENSIVE Debug for ToolCallOutputItem
+            print(f"\n🔍 ULTRA-DEBUGGING ToolCallOutputItem:")
+            print(f"   📋 Basic Info:")
+            print(f"      - Type: {type(item).__name__}")
+            print(f"      - All attributes: {list(item.__dict__.keys())}")
+            print(f"      - All methods: {[m for m in dir(item) if not m.startswith('_') and callable(getattr(item, m, None))]}")
+            
+            print(f"   📊 Direct Attributes:")
             for attr_name in item.__dict__.keys():
                 attr_value = getattr(item, attr_name, None)
-                if len(str(attr_value)) < 200:  # Only show short values
-                    print(f"   - {attr_name}: {repr(attr_value)}")
+                if len(str(attr_value)) < 200:  # Show short values
+                    print(f"      - {attr_name}: {repr(attr_value)}")
                 else:
-                    print(f"   - {attr_name}: <{type(attr_value).__name__} length={len(str(attr_value))}>")
+                    print(f"      - {attr_name}: <{type(attr_value).__name__} length={len(str(attr_value))}>")
+                    # Show first 100 characters of long values
+                    print(f"         Preview: {repr(str(attr_value)[:100])}...")
             
-            print(f"   - Extracted speaker: '{speaker}'")
-            print(f"   - Extracted output length: {len(str(output))}")
+            print(f"   🔧 Multiple Extraction Attempts:")
+            # Try method 1: tool_name attribute
+            method1_speaker = getattr(item, 'tool_name', None)
+            method1_output = getattr(item, 'output', None)
+            print(f"      - Method 1 (tool_name/output): speaker={repr(method1_speaker)}, output_len={len(str(method1_output)) if method1_output else 0}")
+            
+            # Try method 2: name attribute 
+            method2_speaker = getattr(item, 'name', None)
+            method2_output = getattr(item, 'result', None)
+            print(f"      - Method 2 (name/result): speaker={repr(method2_speaker)}, output_len={len(str(method2_output)) if method2_output else 0}")
+            
+            # Try method 3: Direct inspection
+            method3_speaker = getattr(item, 'function_name', None)
+            method3_output = getattr(item, 'content', None)
+            print(f"      - Method 3 (function_name/content): speaker={repr(method3_speaker)}, output_len={len(str(method3_output)) if method3_output else 0}")
+            
+            # Try method 4: vars() inspection
+            try:
+                vars_data = vars(item)
+                print(f"      - Method 4 (vars): {list(vars_data.keys())}")
+                for k, v in vars_data.items():
+                    if len(str(v)) < 100:
+                        print(f"         * {k}: {repr(v)}")
+                    else:
+                        print(f"         * {k}: <{type(v).__name__} length={len(str(v))}>")
+            except:
+                print(f"      - Method 4 (vars): Failed")
+            
+            print(f"   ✅ Final Extraction Results:")
+            print(f"      - speaker: '{speaker}'")
+            print(f"      - output length: {len(str(output))}")
             
             # We find the last turn for this speaker and add their response
             for turn in reversed(conversation_log):
@@ -346,11 +453,30 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20) -> tu
                     print(f"✅ Added response to {speaker}: {str(output)[:50]}...")
                     break
     
-    # Get the final report from the Orchestrator
-    final_report = ItemHelpers.text_message_outputs(result.new_items)
-    
-    if not final_report:
-        final_report = "The debate concluded without a final report."
+    # Get the final report from the Orchestrator with comprehensive error handling
+    try:
+        print(f"\n📝 EXTRACTING FINAL REPORT:")
+        print(f"   - Total result items: {len(result.new_items)}")
+        
+        final_report = ItemHelpers.text_message_outputs(result.new_items)
+        print(f"   - Raw final_report type: {type(final_report)}")
+        print(f"   - Raw final_report length: {len(str(final_report)) if final_report else 0}")
+        
+        if final_report:
+            # Clean the final report to avoid display issues
+            final_report = str(final_report).strip()
+            # Remove any potential problematic characters
+            final_report = final_report.replace('\x00', '').replace('\r\n', '\n')
+            print(f"   - Cleaned final_report length: {len(final_report)}")
+            print(f"   - Final report preview: {repr(final_report[:200])}...")
+        else:
+            print(f"   - Final report is empty/None")
+            final_report = "The debate concluded without a final report."
+            
+    except Exception as e:
+        print(f"   ❌ Error extracting final report: {e}")
+        print(f"   📊 Available result.new_items types: {[type(item).__name__ for item in result.new_items]}")
+        final_report = f"Error generating final report: {str(e)}"
 
     # Create logs directory if it doesn't exist
     logs_dir = "logs"
