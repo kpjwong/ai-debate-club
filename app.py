@@ -23,6 +23,9 @@ from debate_club import (
     verbose_run_final
 )
 
+# Import personas
+from personas import get_persona_names, get_persona_by_display_name
+
 # =============================================================================
 # STREAMLIT PAGE CONFIGURATION
 # =============================================================================
@@ -121,7 +124,7 @@ def check_api_key():
         return True
     return False
 
-async def run_debate(topic: str, model: str, max_turns: int, progress_callback=None):
+async def run_debate(topic: str, model: str, max_turns: int, progress_callback=None, pro_persona: str = None, con_persona: str = None):
     """Run the debate and return results"""
     try:
         # Setup OpenAI client
@@ -129,11 +132,21 @@ async def run_debate(topic: str, model: str, max_turns: int, progress_callback=N
             progress_callback(0, "Setting up OpenAI client...")
         setup_openai_client()
         
+        # Convert persona display names to keys
+        pro_persona_key = None
+        con_persona_key = None
+        
+        if pro_persona and pro_persona != "None (Default)":
+            pro_persona_key, _ = get_persona_by_display_name(pro_persona)
+            
+        if con_persona and con_persona != "None (Default)":
+            con_persona_key, _ = get_persona_by_display_name(con_persona)
+        
         # Create agents
         if progress_callback:
             progress_callback(1, "Creating Pro and Con agents...")
-        pro_agent = create_pro_agent(model)
-        con_agent = create_con_agent(model)
+        pro_agent = create_pro_agent(model, pro_persona_key)
+        con_agent = create_con_agent(model, con_persona_key)
         
         # Create tools
         if progress_callback:
@@ -191,24 +204,24 @@ def render_conversation_ui(conversation_log):
         response = turn.get('response', '')
         
         if speaker == 'ProAgent':
-            # Pro agent message (left side, green)
-            st.markdown(f'''
-            <div class="pro-message">
-                <div class="speaker-name pro-name">🟢 Pro Agent</div>
-                <div><strong>Task:</strong> {content}</div>
-                {f"<br><strong>Response:</strong> {response}" if response else ""}
-            </div>
-            ''', unsafe_allow_html=True)
+            # Pro agent message (left side, green) - show only response
+            if response:  # Only show if there's a response
+                st.markdown(f'''
+                <div class="pro-message">
+                    <div class="speaker-name pro-name">🟢 Pro Agent</div>
+                    <div>{response}</div>
+                </div>
+                ''', unsafe_allow_html=True)
             
         elif speaker == 'ConAgent':
-            # Con agent message (right side, red)
-            st.markdown(f'''
-            <div class="con-message">
-                <div class="speaker-name con-name">🔴 Con Agent</div>
-                <div><strong>Task:</strong> {content}</div>
-                {f"<br><strong>Response:</strong> {response}" if response else ""}
-            </div>
-            ''', unsafe_allow_html=True)
+            # Con agent message (right side, red) - show only response
+            if response:  # Only show if there's a response
+                st.markdown(f'''
+                <div class="con-message">
+                    <div class="speaker-name con-name">🔴 Con Agent</div>
+                    <div>{response}</div>
+                </div>
+                ''', unsafe_allow_html=True)
 
 def main():
     """Main Streamlit application"""
@@ -253,6 +266,29 @@ def main():
             help="Choose the OpenAI model for all agents (GPT-5 models recommended for best performance)"
         )
         
+        st.divider()
+        
+        # Persona configuration
+        st.subheader("🎭 Agent Personas")
+        
+        # Get available persona names
+        persona_options = ["None (Default)"] + get_persona_names()
+        
+        pro_persona = st.selectbox(
+            "🟢 Choose Pro Agent Persona",
+            options=persona_options,
+            index=0,  # Default to "None"
+            help="Select a personality for the Pro (affirmative) agent"
+        )
+        
+        con_persona = st.selectbox(
+            "🔴 Choose Con Agent Persona", 
+            options=persona_options,
+            index=0,  # Default to "None"
+            help="Select a personality for the Con (negative) agent"
+        )
+        
+        # Same persona allowed for both sides for entertaining debates
         max_turns = st.slider(
             "Max Turns",
             min_value=5,
@@ -295,7 +331,7 @@ def main():
                     progress_bar.progress(int(progress))
                     
                 # Run the actual debate with meaningful progress
-                results = asyncio.run(run_debate(topic, model, max_turns, update_progress))
+                results = asyncio.run(run_debate(topic, model, max_turns, update_progress, pro_persona, con_persona))
                 
                 # Store results and update state
                 st.session_state.debate_results = results

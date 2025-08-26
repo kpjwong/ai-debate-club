@@ -105,41 +105,79 @@ Examples:
 # 2. L1 SPECIALIST AGENT DEFINITIONS
 # =============================================================================
 
-def create_pro_agent(model: str) -> Agent:
-    """Create the Pro (Affirmative) debater agent"""
+def create_pro_agent(model: str, persona_key: str = None) -> Agent:
+    """Create the Pro (Affirmative) debater agent with optional persona"""
+    base_instructions = (
+        "You are a skilled debater arguing FOR the motion - you AGREE with and SUPPORT the motion. "
+        "Your role is to argue that the motion is TRUE, CORRECT, and SHOULD BE ACCEPTED. "
+        "You must present compelling arguments that the motion statement is valid and should be believed. "
+        "\n\nIMPORTANT: Always respond in full, coherent speech paragraphs. "
+        "Do NOT use bullet points, numbered lists, or fragmented statements. "
+        "Speak as if delivering a live debate speech to an audience."
+        "\n\nGuidelines:"
+        "\n- Deliver complete, flowing arguments in paragraph form"
+        "\n- Use natural speech patterns with smooth transitions between points"
+        "\n- Incorporate specific examples and evidence within your speech"
+        "\n- When rebutting, directly address your opponent's points conversationally"
+        "\n- Keep your speech engaging, persuasive, and substantive"
+        "\n- Structure your arguments logically but present them as natural speech"
+        "\n- Make the debate entertaining while maintaining depth and credibility"
+    )
+    
+    # Import personas module
+    from personas import build_persona_prompt, PERSONAS
+    
+    # Apply persona if specified
+    if persona_key and persona_key in PERSONAS:
+        instructions = build_persona_prompt(base_instructions, persona_key)
+        # Use valid tool name (no spaces, parentheses, or special characters)
+        agent_name = f"ProAgent_{persona_key}"
+    else:
+        instructions = base_instructions
+        agent_name = "ProAgent"
+    
     return Agent(
-        name="ProAgent",
+        name=agent_name,
         model=model,
-        instructions=(
-            "You are a skilled debater arguing IN FAVOR of the motion. "
-            "Your role is to present compelling arguments that support the given position. "
-            "\n\nGuidelines:"
-            "\n- Provide clear, logical, and evidence-based arguments"
-            "\n- Use specific examples and data when possible"
-            "\n- When asked to rebut, directly address your opponent's points"
-            "\n- Maintain a professional and respectful tone"
-            "\n- Keep responses concise and focused on core arguments"
-            "\n- Structure your arguments with clear reasoning"
-        ),
+        instructions=instructions,
         tools=[]
     )
 
-def create_con_agent(model: str) -> Agent:
-    """Create the Con (Negative) debater agent"""
+def create_con_agent(model: str, persona_key: str = None) -> Agent:
+    """Create the Con (Negative) debater agent with optional persona"""
+    base_instructions = (
+        "You are a skilled debater arguing AGAINST the motion - you DISAGREE with and OPPOSE the motion. "
+        "Your role is to argue that the motion is FALSE, INCORRECT, and SHOULD BE REJECTED. "
+        "You must present compelling arguments that the motion statement is wrong and should not be believed. "
+        "\n\nIMPORTANT: Always respond in full, coherent speech paragraphs. "
+        "Do NOT use bullet points, numbered lists, or fragmented statements. "
+        "Speak as if delivering a live debate speech to an audience."
+        "\n\nGuidelines:"
+        "\n- Deliver complete, flowing arguments in paragraph form"
+        "\n- Use natural speech patterns with smooth transitions between points"
+        "\n- Incorporate specific examples and evidence within your speech"
+        "\n- When rebutting, directly address your opponent's points conversationally"
+        "\n- Keep your speech engaging, persuasive, and substantive"
+        "\n- Structure your arguments logically but present them as natural speech"
+        "\n- Make the debate entertaining while maintaining depth and credibility"
+    )
+    
+    # Import personas module
+    from personas import build_persona_prompt, PERSONAS
+    
+    # Apply persona if specified
+    if persona_key and persona_key in PERSONAS:
+        instructions = build_persona_prompt(base_instructions, persona_key)
+        # Use valid tool name (no spaces, parentheses, or special characters)
+        agent_name = f"ConAgent_{persona_key}"
+    else:
+        instructions = base_instructions
+        agent_name = "ConAgent"
+    
     return Agent(
-        name="ConAgent",
+        name=agent_name,
         model=model,
-        instructions=(
-            "You are a skilled debater arguing AGAINST the motion. "
-            "Your role is to present compelling arguments that oppose the given position. "
-            "\n\nGuidelines:"
-            "\n- Provide clear, logical, and evidence-based arguments"
-            "\n- Use specific examples and data when possible"
-            "\n- When asked to rebut, directly address your opponent's points"
-            "\n- Maintain a professional and respectful tone"
-            "\n- Keep responses concise and focused on core arguments"
-            "\n- Structure your arguments with clear reasoning"
-        ),
+        instructions=instructions,
         tools=[]
     )
 
@@ -377,20 +415,25 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
             print(f"      - arguments: {arguments}")
             
             # We log this as a "turn" for the sub-agent
-            if tool_name in ["ProAgent", "ConAgent"]:
+            # FIXED: Check if tool name starts with ProAgent or ConAgent to support personas
+            if tool_name.startswith("ProAgent") or tool_name.startswith("ConAgent"):
                 content = arguments.get('query', arguments.get('input', "[No query provided]"))
                 # Clean Unicode from content before logging
                 content = clean_unicode_for_windows(content)
+                
+                # Normalize speaker name for UI consistency
+                speaker = "ProAgent" if tool_name.startswith("ProAgent") else "ConAgent"
+                
                 conversation_log.append({
-                    "speaker": tool_name,
+                    "speaker": speaker,
                     "content": content
                 })
                 if debug_mode:
-                    safe_print(f" Added conversation turn: {tool_name} -> {content[:50]}...")
+                    safe_print(f" Added conversation turn: {speaker} -> {content[:50]}...")
                 
                 # Real-time progress updates during actual debate
                 if progress_callback:
-                    if tool_name == "ProAgent":
+                    if tool_name.startswith("ProAgent"):
                         stage_messages = [
                             "Pro Agent: Creating opening statement...",
                             "Pro Agent: Preparing rebuttal...", 
@@ -399,7 +442,7 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
                         if pro_calls < len(stage_messages):
                             progress_callback(4 + pro_calls * 0.5, stage_messages[pro_calls])
                         pro_calls += 1
-                    elif tool_name == "ConAgent":
+                    elif tool_name.startswith("ConAgent"):
                         stage_messages = [
                             "Con Agent: Creating opening statement...",
                             "Con Agent: Preparing rebuttal...",
@@ -619,7 +662,7 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
 # 6. MAIN EXECUTION BLOCK
 # =============================================================================
 
-async def main(topic_override: Optional[str] = None, model_override: Optional[str] = None):
+async def main(topic_override: Optional[str] = None, model_override: Optional[str] = None, pro_persona: Optional[str] = None, con_persona: Optional[str] = None):
     """
     Main async function that orchestrates the entire debate process.
     Supports both command-line and Jupyter notebook execution.
@@ -647,9 +690,9 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
     # Setup OpenAI client
     setup_openai_client()
     
-    # Create L1 Specialist Agents
-    pro_agent = create_pro_agent(model)
-    con_agent = create_con_agent(model)
+    # Create L1 Specialist Agents with personas
+    pro_agent = create_pro_agent(model, pro_persona)
+    con_agent = create_con_agent(model, con_persona)
     print(" L1 Debater agents created")
     
     # Create agent-as-tool wrappers
