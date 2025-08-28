@@ -45,6 +45,9 @@ except ImportError:
     )
 
 from openai import OpenAI, AsyncOpenAI
+import subprocess
+import sys
+from pathlib import Path
 
 # API Key Configuration (for learning environment - use environment variables in production)
 OPENAI_API_KEY = "sk-your-api-key-here"  # Replace with your actual API key
@@ -105,7 +108,7 @@ Examples:
 # 2. L1 SPECIALIST AGENT DEFINITIONS
 # =============================================================================
 
-def create_pro_agent(model: str, persona_key: str = None) -> Agent:
+def create_pro_agent(model: str, persona_key: str = None, mcp_client=None) -> Agent:
     """Create the Pro (Affirmative) debater agent with optional persona"""
     base_instructions = (
         "You are a skilled debater arguing FOR the motion - you AGREE with and SUPPORT the motion. "
@@ -122,6 +125,14 @@ def create_pro_agent(model: str, persona_key: str = None) -> Agent:
         "\n- Keep your speech engaging, persuasive, and substantive"
         "\n- Structure your arguments logically but present them as natural speech"
         "\n- Make the debate entertaining while maintaining depth and credibility"
+        "\n\nRESEARCH CAPABILITIES:"
+        "\nYou have access to powerful research tools to strengthen your arguments:"
+        "\n- web_search: Search the internet for current data, statistics, and evidence"
+        "\n- search_statistics: Find specific statistical data and research studies"
+        "\n- fact_check: Verify claims and find authoritative sources"
+        "\nUSE THESE TOOLS to find compelling evidence that supports your position."
+        "\nAlways cite your sources when presenting researched information."
+        "\nExample: 'According to recent data from [source], the statistics show...'"
     )
     
     # Import personas module
@@ -136,14 +147,40 @@ def create_pro_agent(model: str, persona_key: str = None) -> Agent:
         instructions = base_instructions
         agent_name = "ProAgent"
     
+    # Create research tools if MCP client is available
+    research_tools = []
+    if mcp_client:
+        # Create proxy tools that call MCP methods
+        async def web_search_tool(query: str, max_results: int = 5) -> str:
+            """Search the web for information relevant to your debate position."""
+            return await mcp_client.web_search(query, max_results)
+        
+        async def search_statistics_tool(topic: str) -> str:
+            """Find statistical data and research studies about a topic."""
+            return await mcp_client.search_statistics(topic)
+        
+        async def fact_check_tool(claim: str) -> str:
+            """Verify claims and find authoritative sources."""
+            return await mcp_client.fact_check(claim)
+        
+        # Wrap as function tools
+        research_tools = [
+            function_tool(web_search_tool, name_override="web_search", 
+                         description_override="Search the web for current data, statistics, and evidence to support your arguments"),
+            function_tool(search_statistics_tool, name_override="search_statistics",
+                         description_override="Find specific statistical data and research studies relevant to the debate topic"),
+            function_tool(fact_check_tool, name_override="fact_check",
+                         description_override="Verify claims and find authoritative sources for fact-checking")
+        ]
+    
     return Agent(
         name=agent_name,
         model=model,
         instructions=instructions,
-        tools=[]
+        tools=research_tools
     )
 
-def create_con_agent(model: str, persona_key: str = None) -> Agent:
+def create_con_agent(model: str, persona_key: str = None, mcp_client=None) -> Agent:
     """Create the Con (Negative) debater agent with optional persona"""
     base_instructions = (
         "You are a skilled debater arguing AGAINST the motion - you DISAGREE with and OPPOSE the motion. "
@@ -160,6 +197,14 @@ def create_con_agent(model: str, persona_key: str = None) -> Agent:
         "\n- Keep your speech engaging, persuasive, and substantive"
         "\n- Structure your arguments logically but present them as natural speech"
         "\n- Make the debate entertaining while maintaining depth and credibility"
+        "\n\nRESEARCH CAPABILITIES:"
+        "\nYou have access to powerful research tools to strengthen your arguments:"
+        "\n- web_search: Search the internet for current data, statistics, and evidence"
+        "\n- search_statistics: Find specific statistical data and research studies"
+        "\n- fact_check: Verify claims and find authoritative sources"
+        "\nUSE THESE TOOLS to find compelling evidence that OPPOSES the motion."
+        "\nAlways cite your sources when presenting researched information."
+        "\nExample: 'According to recent data from [source], the statistics show...'"
     )
     
     # Import personas module
@@ -174,11 +219,37 @@ def create_con_agent(model: str, persona_key: str = None) -> Agent:
         instructions = base_instructions
         agent_name = "ConAgent"
     
+    # Create research tools if MCP client is available
+    research_tools = []
+    if mcp_client:
+        # Create proxy tools that call MCP methods
+        async def web_search_tool(query: str, max_results: int = 5) -> str:
+            """Search the web for information relevant to your debate position."""
+            return await mcp_client.web_search(query, max_results)
+        
+        async def search_statistics_tool(topic: str) -> str:
+            """Find statistical data and research studies about a topic."""
+            return await mcp_client.search_statistics(topic)
+        
+        async def fact_check_tool(claim: str) -> str:
+            """Verify claims and find authoritative sources."""
+            return await mcp_client.fact_check(claim)
+        
+        # Wrap as function tools
+        research_tools = [
+            function_tool(web_search_tool, name_override="web_search", 
+                         description_override="Search the web for current data, statistics, and evidence to support your arguments"),
+            function_tool(search_statistics_tool, name_override="search_statistics",
+                         description_override="Find specific statistical data and research studies relevant to the debate topic"),
+            function_tool(fact_check_tool, name_override="fact_check",
+                         description_override="Verify claims and find authoritative sources for fact-checking")
+        ]
+    
     return Agent(
         name=agent_name,
         model=model,
         instructions=instructions,
-        tools=[]
+        tools=research_tools
     )
 
 # =============================================================================
@@ -659,7 +730,95 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
     return (final_report, conversation_log)
 
 # =============================================================================
-# 6. MAIN EXECUTION BLOCK
+# 6. MCP INTEGRATION
+# =============================================================================
+
+class MCPResearchClient:
+    """Client for managing MCP research service connection"""
+    
+    def __init__(self):
+        self.process = None
+        self.available = False
+        
+    async def start_service(self):
+        """Start the MCP research service as a subprocess"""
+        try:
+            # Get the path to the research service
+            service_path = Path(__file__).parent / "mcp_services" / "research_service.py"
+            
+            if not service_path.exists():
+                print("WARNING: MCP research service not found at:", service_path)
+                return False
+            
+            # Start the research service as a subprocess
+            print("Starting MCP research service...")
+            self.process = await asyncio.create_subprocess_exec(
+                sys.executable, str(service_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Give it a moment to start up
+            await asyncio.sleep(1)
+            
+            # Check if process is running
+            if self.process.returncode is None:
+                print("SUCCESS: MCP research service started")
+                self.available = True
+                return True
+            else:
+                print("ERROR: MCP research service failed to start")
+                return False
+                
+        except Exception as e:
+            print(f"ERROR: Failed to start MCP research service: {e}")
+            return False
+    
+    async def stop_service(self):
+        """Stop the MCP research service"""
+        if self.process:
+            try:
+                print("Stopping MCP research service...")
+                self.process.terminate()
+                await self.process.wait()
+                print("MCP research service stopped")
+            except Exception as e:
+                print(f"WARNING: Error stopping MCP research service: {e}")
+            finally:
+                self.process = None
+                self.available = False
+    
+    async def web_search(self, query: str, max_results: int = 5) -> str:
+        """Perform web search using the research service"""
+        if not self.available:
+            return f"MCP research service not available. Mock result for: {query}"
+        
+        # For now, return mock data since we're not implementing full MCP client yet
+        # In a full implementation, this would connect to the MCP server via stdio/http
+        from mcp_services.research_service import web_search
+        return await web_search(query, max_results)
+    
+    async def search_statistics(self, topic: str) -> str:
+        """Search for statistics using the research service"""
+        if not self.available:
+            return f"MCP research service not available. Mock statistics for: {topic}"
+        
+        from mcp_services.research_service import search_statistics
+        return await search_statistics(topic)
+    
+    async def fact_check(self, claim: str) -> str:
+        """Fact-check a claim using the research service"""
+        if not self.available:
+            return f"MCP research service not available. Mock fact-check for: {claim}"
+        
+        from mcp_services.research_service import fact_check
+        return await fact_check(claim)
+
+# Global MCP client instance
+mcp_client = MCPResearchClient()
+
+# =============================================================================
+# 7. MAIN EXECUTION BLOCK
 # =============================================================================
 
 async def main(topic_override: Optional[str] = None, model_override: Optional[str] = None, pro_persona: Optional[str] = None, con_persona: Optional[str] = None):
@@ -690,9 +849,17 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
     # Setup OpenAI client
     setup_openai_client()
     
+    # Start MCP research service
+    print(" Starting MCP research service...")
+    mcp_started = await mcp_client.start_service()
+    if mcp_started:
+        print(" MCP research service is ready")
+    else:
+        print(" WARNING: MCP research service unavailable - continuing with mock data")
+    
     # Create L1 Specialist Agents with personas
-    pro_agent = create_pro_agent(model, pro_persona)
-    con_agent = create_con_agent(model, con_persona)
+    pro_agent = create_pro_agent(model, pro_persona, mcp_client)
+    con_agent = create_con_agent(model, con_persona, mcp_client)
     print(" L1 Debater agents created")
     
     # Create agent-as-tool wrappers
@@ -720,6 +887,9 @@ async def main(topic_override: Optional[str] = None, model_override: Optional[st
     print("FINAL REPORT:")
     print("="*80)
     print(final_report)
+    
+    # Cleanup: Stop MCP research service
+    await mcp_client.stop_service()
 
 # =============================================================================
 # EXECUTION ENTRY POINTS
