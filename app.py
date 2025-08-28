@@ -31,7 +31,7 @@ from personas import get_persona_names, get_persona_by_display_name
 # =============================================================================
 
 st.set_page_config(
-    page_title="🎭 AI Debate Club",
+    page_title="AI Debate Club",
     page_icon="🎭",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -227,7 +227,7 @@ def main():
     """Main Streamlit application"""
     
     # Header
-    st.title("🎭 AI Debate Club")
+    st.title("AI Debate Club")
     st.markdown("*A sophisticated multi-agent debate system*")
     
     # Sidebar for configuration
@@ -252,19 +252,38 @@ def main():
         # Debate configuration
         st.subheader("🎯 Debate Settings")
         
+        # Initialize topic in session state if not exists
+        if 'topic' not in st.session_state:
+            st.session_state.topic = "Social media platforms should be regulated as public utilities"
+        
         topic = st.text_area(
             "Debate Topic",
-            value="Social media platforms should be regulated as public utilities",
+            value=st.session_state.topic,
             height=100,
             help="Enter the motion/topic for the debate"
         )
         
-        model = st.selectbox(
+        # Update session state when user types
+        if topic != st.session_state.topic:
+            st.session_state.topic = topic
+        
+        # Model selection with intuitive aliases
+        model_options = {
+            "GPT-5 (Latest)": "gpt-5-2025-08-07",
+            "GPT-5 Mini (Fast)": "gpt-5-mini-2025-08-07", 
+            "GPT-4.1 (Advanced)": "gpt-4.1-2025-04-14",
+            "GPT-4o (Recommended)": "gpt-4o",
+            "GPT-4 Turbo": "gpt-4-turbo",
+            "GPT-4o Mini (Fastest)": "gpt-4o-mini"
+        }
+        
+        model_display = st.selectbox(
             "AI Model",
-            options=["gpt-5-2025-08-07", "gpt-5-mini-2025-08-07", "gpt-4.1-2025-04-14", "gpt-4o", "gpt-4-turbo", "gpt-4o-mini"],
-            index=3,  # Default to gpt-4o (4th option)
+            options=list(model_options.keys()),
+            index=3,  # Default to GPT-4o (Recommended)
             help="Choose the OpenAI model for all agents (GPT-5 models recommended for best performance)"
         )
+        model = model_options[model_display]
         
         st.divider()
         
@@ -289,13 +308,8 @@ def main():
         )
         
         # Same persona allowed for both sides for entertaining debates
-        max_turns = st.slider(
-            "Max Turns",
-            min_value=5,
-            max_value=50,
-            value=20,
-            help="Maximum number of turns for the debate"
-        )
+        # Max turns is hardcoded to 20 for optimal debate length
+        max_turns = 20
         
         st.divider()
         
@@ -449,6 +463,7 @@ def main():
         
         for i, topic_example in enumerate(example_topics):
             if st.button(f"🎯 {topic_example}", key=f"example_{i}"):
+                st.session_state.topic = topic_example
                 st.rerun()
 
 if __name__ == "__main__":
