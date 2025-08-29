@@ -150,18 +150,82 @@ def create_pro_agent(model: str, persona_key: str = None, mcp_client=None) -> Ag
     # Create research tools if MCP client is available
     research_tools = []
     if mcp_client:
-        # Create proxy tools that call MCP methods
+        # Create proxy tools that call MCP methods with transparency
         async def web_search_tool(query: str, max_results: int = 5) -> str:
             """Search the web for information relevant to your debate position."""
-            return await mcp_client.web_search(query, max_results)
+            # Signal tool call start
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_call",
+                    "speaker": agent_name,
+                    "tool_name": "web_search",
+                    "arguments": {"query": query, "max_results": max_results},
+                    "status": "starting"
+                })
+            
+            # Perform the actual search
+            result = await mcp_client.web_search(query, max_results)
+            
+            # Signal tool call completion
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_result", 
+                    "speaker": agent_name,
+                    "tool_name": "web_search",
+                    "result": result[:200] + "..." if len(result) > 200 else result
+                })
+            
+            return result
         
         async def search_statistics_tool(topic: str) -> str:
             """Find statistical data and research studies about a topic."""
-            return await mcp_client.search_statistics(topic)
+            # Signal tool call start
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_call",
+                    "speaker": agent_name,
+                    "tool_name": "search_statistics", 
+                    "arguments": {"topic": topic},
+                    "status": "starting"
+                })
+            
+            result = await mcp_client.search_statistics(topic)
+            
+            # Signal tool call completion
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_result",
+                    "speaker": agent_name, 
+                    "tool_name": "search_statistics",
+                    "result": result[:200] + "..." if len(result) > 200 else result
+                })
+            
+            return result
         
         async def fact_check_tool(claim: str) -> str:
             """Verify claims and find authoritative sources."""
-            return await mcp_client.fact_check(claim)
+            # Signal tool call start
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_call",
+                    "speaker": agent_name,
+                    "tool_name": "fact_check",
+                    "arguments": {"claim": claim},
+                    "status": "starting" 
+                })
+            
+            result = await mcp_client.fact_check(claim)
+            
+            # Signal tool call completion
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_result",
+                    "speaker": agent_name,
+                    "tool_name": "fact_check", 
+                    "result": result[:200] + "..." if len(result) > 200 else result
+                })
+            
+            return result
         
         # Wrap as function tools
         research_tools = [
@@ -222,18 +286,82 @@ def create_con_agent(model: str, persona_key: str = None, mcp_client=None) -> Ag
     # Create research tools if MCP client is available
     research_tools = []
     if mcp_client:
-        # Create proxy tools that call MCP methods
+        # Create proxy tools that call MCP methods with transparency
         async def web_search_tool(query: str, max_results: int = 5) -> str:
             """Search the web for information relevant to your debate position."""
-            return await mcp_client.web_search(query, max_results)
+            # Signal tool call start
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_call",
+                    "speaker": agent_name,
+                    "tool_name": "web_search",
+                    "arguments": {"query": query, "max_results": max_results},
+                    "status": "starting"
+                })
+            
+            # Perform the actual search
+            result = await mcp_client.web_search(query, max_results)
+            
+            # Signal tool call completion
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_result", 
+                    "speaker": agent_name,
+                    "tool_name": "web_search",
+                    "result": result[:200] + "..." if len(result) > 200 else result
+                })
+            
+            return result
         
         async def search_statistics_tool(topic: str) -> str:
             """Find statistical data and research studies about a topic."""
-            return await mcp_client.search_statistics(topic)
+            # Signal tool call start
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_call",
+                    "speaker": agent_name,
+                    "tool_name": "search_statistics", 
+                    "arguments": {"topic": topic},
+                    "status": "starting"
+                })
+            
+            result = await mcp_client.search_statistics(topic)
+            
+            # Signal tool call completion
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_result",
+                    "speaker": agent_name, 
+                    "tool_name": "search_statistics",
+                    "result": result[:200] + "..." if len(result) > 200 else result
+                })
+            
+            return result
         
         async def fact_check_tool(claim: str) -> str:
             """Verify claims and find authoritative sources."""
-            return await mcp_client.fact_check(claim)
+            # Signal tool call start
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_call",
+                    "speaker": agent_name,
+                    "tool_name": "fact_check",
+                    "arguments": {"claim": claim},
+                    "status": "starting" 
+                })
+            
+            result = await mcp_client.fact_check(claim)
+            
+            # Signal tool call completion
+            if mcp_client.update_queue:
+                await mcp_client.update_queue.put({
+                    "type": "tool_result",
+                    "speaker": agent_name,
+                    "tool_name": "fact_check", 
+                    "result": result[:200] + "..." if len(result) > 200 else result
+                })
+            
+            return result
         
         # Wrap as function tools
         research_tools = [
@@ -377,7 +505,7 @@ def safe_print(*args, **kwargs):
     cleaned_args = [clean_unicode_for_windows(str(arg)) for arg in args]
     print(*cleaned_args, **kwargs)
 
-async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progress_callback=None, debug_mode: bool = False) -> tuple:
+async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progress_callback=None, debug_mode: bool = False, tool_transparency: bool = True) -> tuple:
     """
     MODIFIED: Runs an agent and RETURNS a structured log and the final report.
     Returns: A tuple containing (final_report_string, conversation_log_list)
@@ -387,6 +515,31 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
     import os
     
     conversation_log = []
+    tool_calls = []  # Track research tool calls for transparency
+    
+    # Setup tool transparency
+    if tool_transparency:
+        # Create update queue for capturing tool calls
+        tool_update_queue = asyncio.Queue()
+        # Set the queue on the global MCP client
+        mcp_client.set_update_queue(tool_update_queue)
+        
+        # Start task to process tool call events
+        async def process_tool_calls():
+            while True:
+                try:
+                    update = await asyncio.wait_for(tool_update_queue.get(), timeout=0.1)
+                    tool_calls.append(update)
+                    if update['type'] == 'tool_call':
+                        print(f"   🔍 {update['speaker']} is using {update['tool_name']} with query: {update['arguments'].get('query', update['arguments'])}")
+                    elif update['type'] == 'tool_result':
+                        print(f"   ✅ {update['tool_name']} completed: {update['result'][:100]}...")
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    break
+        
+        tool_task = asyncio.create_task(process_tool_calls())
     
     print(f"\n>>> Starting run for Agent: '{agent.name}' with Query: '{query}' <<<")
     
@@ -725,6 +878,13 @@ async def verbose_run_final(agent: Agent, query: str, max_turns: int = 20, progr
     print(f"   - Report: {report_file}")
     print(f"   - Raw Debug: {raw_debug_file}")
     print(f"   - Conversation log entries: {len(conversation_log)}")
+    
+    # Cleanup tool transparency
+    if tool_transparency and 'tool_task' in locals():
+        tool_task.cancel()
+        mcp_client.set_update_queue(None)
+        if tool_calls:
+            print(f"   - Research tool calls captured: {len(tool_calls)}")
 
     # Return the structured data
     return (final_report, conversation_log)
@@ -739,6 +899,7 @@ class MCPResearchClient:
     def __init__(self):
         self.process = None
         self.available = False
+        self.update_queue = None  # For broadcasting tool calls
         
     async def start_service(self):
         """Start the MCP research service as a subprocess"""
@@ -787,6 +948,10 @@ class MCPResearchClient:
             finally:
                 self.process = None
                 self.available = False
+    
+    def set_update_queue(self, update_queue):
+        """Set the update queue for broadcasting tool calls"""
+        self.update_queue = update_queue
     
     async def web_search(self, query: str, max_results: int = 5) -> str:
         """Perform web search using the research service"""
